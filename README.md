@@ -119,7 +119,7 @@ singularity exec --overlay protein_vis.ext3:rw \
   /share/apps/images/cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif \
   /bin/bash -c '
     export PATH=/ext3/miniforge3/bin:$PATH
-    wget -q https://repo.anaconda.com/miniforge/Miniforge3-Linux-x86_64.sh -O /ext3/miniforge.sh
+    wget -q https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O /ext3/miniforge.sh
     bash /ext3/miniforge.sh -b -p /ext3/miniforge3
     source /ext3/miniforge3/etc/profile.d/conda.sh
     conda create -y -p /ext3/miniforge3/envs/pv python=3.11
