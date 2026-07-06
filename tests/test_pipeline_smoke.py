@@ -69,6 +69,10 @@ def test_pipeline_smoke_end_to_end(tmp_path):
     assert "core_domain" in report["domains_rendered"]
     assert "unused_domain" not in report["domains_rendered"]
     assert report["domains_rendered"]["core_domain"]["n_unmapped"] == 0
+    # Domain renders should record which structure residues were
+    # highlighted/zoomed to; the overview has no single domain to highlight.
+    assert report["domains_rendered"]["core_domain"]["n_structure_residues_highlighted"] == 10
+    assert report["domains_rendered"]["overview"]["n_structure_residues_highlighted"] is None
 
 
 def test_pipeline_smoke_auto_domains(tmp_path):

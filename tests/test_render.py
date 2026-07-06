@@ -72,6 +72,48 @@ def test_render_interactive_html_is_self_contained(tmp_path):
     assert "$3Dmolpromise = Promise.resolve()" in html
 
 
+def test_render_static_png_zooms_and_highlights_domain(tmp_path):
+    struct = _make_tiny_struct()
+    alignment = _make_alignment()
+    colors = ColorMap()
+
+    whole = render_static_png(
+        struct, _make_variants_df(), alignment, colors, tmp_path / "whole.png", title="whole"
+    )
+    # Highlight just resnums 101-105 (the first half of the fixture backbone).
+    zoomed = render_static_png(
+        struct, _make_variants_df(), alignment, colors, tmp_path / "zoomed.png", title="zoomed",
+        highlight_resnums={101, 102, 103, 104, 105},
+    )
+    assert whole.exists() and zoomed.exists()
+    # A cropped render should differ in size from the uncropped one -- if
+    # this ever fails, the highlight/zoom path silently stopped doing anything.
+    assert whole.stat().st_size != zoomed.stat().st_size
+
+
+def test_render_interactive_html_highlights_and_zooms_domain(tmp_path):
+    struct = _make_tiny_struct()
+    alignment = _make_alignment()
+    colors = ColorMap()
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "js").mkdir(parents=True)
+    (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+
+    out = render_interactive_html(
+        struct,
+        _make_variants_df(),
+        alignment,
+        colors,
+        tmp_path / "out.html",
+        title="test",
+        cache_dir=cache_dir,
+        highlight_resnums={101, 102, 103, 104, 105},
+    )
+    html = out.read_text()
+    assert "steelblue" in html
+    assert '"resi":[101,102,103,104,105]' in html.replace(" ", "")
+
+
 def test_render_interactive_html_missing_js_raises(tmp_path):
     struct = _make_tiny_struct()
     alignment = _make_alignment()

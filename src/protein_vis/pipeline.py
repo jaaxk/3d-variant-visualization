@@ -18,6 +18,22 @@ from . import render as render_mod
 from . import structure as structure_mod
 from . import variants as variants_mod
 from .colors import ColorMap
+from .domains import Domain
+from .structure import AlignmentResult
+
+
+def _resnums_for_domain(domain: Domain, alignment: AlignmentResult) -> set[int]:
+    """Structure resnums covered by a domain's reference-sequence range.
+
+    Used to highlight/zoom to a domain's own backbone segment rather than
+    always showing the whole structure -- otherwise every domain's
+    visualization looks identical apart from which variants are colored.
+    """
+    return {
+        alignment.pos_to_resnum[pos]
+        for pos in range(domain.start, domain.end + 1)
+        if pos in alignment.pos_to_resnum
+    }
 
 
 def run_render(
@@ -69,6 +85,8 @@ def run_render(
     groups = domains_mod.group_variants_by_domain(long_df, domains_list)
     print(f"      variants land in {len(groups)} domain(s) with >=1 hit: {sorted(groups)}")
 
+    domains_by_name = {d.name: d for d in domains_list}
+
     print(f"[6/6] rendering {1 + len(groups)} visualization(s) to {output_dir}")
     colors = ColorMap()
     report: dict = {
@@ -81,25 +99,31 @@ def run_render(
         "domains_rendered": {},
     }
 
-    def _render_one(name: str, sub_df, title: str) -> None:
+    def _render_one(name: str, sub_df, title: str, domain: Domain | None = None) -> None:
+        highlight_resnums = _resnums_for_domain(domain, alignment) if domain else None
         html_path = output_dir / f"{name}.html"
         png_path = output_dir / f"{name}.png"
         render_mod.render_interactive_html(
-            struct, sub_df, alignment, colors, html_path, title=title, cache_dir=cache_dir
+            struct, sub_df, alignment, colors, html_path, title=title, cache_dir=cache_dir,
+            highlight_resnums=highlight_resnums,
         )
-        render_mod.render_static_png(struct, sub_df, alignment, colors, png_path, title=title)
+        render_mod.render_static_png(
+            struct, sub_df, alignment, colors, png_path, title=title,
+            highlight_resnums=highlight_resnums,
+        )
         mapped, n_unmapped = render_mod._variant_positions_with_coords(sub_df, struct, alignment)
         report["domains_rendered"][name] = {
             "n_variants": len(sub_df),
             "n_mapped": len(mapped),
             "n_unmapped": n_unmapped,
+            "n_structure_residues_highlighted": len(highlight_resnums) if highlight_resnums else None,
         }
         print(f"      wrote {html_path.name} / {png_path.name} "
               f"({len(mapped)} mapped, {n_unmapped} unmapped)")
 
     _render_one("overview", long_df, f"{uniprot_accession} — whole structure overview")
     for name, sub_df in groups.items():
-        _render_one(name, sub_df, f"{uniprot_accession} — domain: {name}")
+        _render_one(name, sub_df, f"{uniprot_accession} — domain: {name}", domain=domains_by_name[name])
 
     report_path = output_dir / "run_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True))

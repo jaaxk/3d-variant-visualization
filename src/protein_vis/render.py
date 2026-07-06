@@ -72,17 +72,38 @@ def render_static_png(
     out_path: str | Path,
     *,
     title: str,
+    highlight_resnums: set[int] | None = None,
+    zoom_padding: float = 6.0,
 ) -> Path:
+    """Render a static 3D backbone + variant scatter.
+
+    highlight_resnums -- structure resnums belonging to the domain being
+    visualized (if any). When given, that backbone segment is drawn in a
+    distinct color on top of the (dimmed) full backbone, and the camera is
+    cropped to its bounding box -- without this, every domain's PNG shows
+    the same whole-structure view and is indistinguishable from the others
+    except for which dots happen to be colored.
+    """
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
 
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(111, projection="3d")
 
-    backbone = np.array(
-        [struct.ca_coords[r] for r in sorted(struct.resnums) if r in struct.ca_coords]
-    )
+    sorted_resnums = sorted(struct.resnums)
+    base_color = "#DDE3E8" if highlight_resnums else "#B0BEC5"
+    base_alpha = 0.5 if highlight_resnums else 0.6
+
+    backbone = np.array([struct.ca_coords[r] for r in sorted_resnums if r in struct.ca_coords])
     if len(backbone) > 0:
-        ax.plot(*backbone.T, "-", lw=0.6, color="#B0BEC5", alpha=0.6)
+        ax.plot(*backbone.T, "-", lw=0.6, color=base_color, alpha=base_alpha)
+
+    highlight_coords = None
+    if highlight_resnums:
+        highlight_coords = np.array(
+            [struct.ca_coords[r] for r in sorted_resnums if r in highlight_resnums and r in struct.ca_coords]
+        )
+        if len(highlight_coords) > 0:
+            ax.plot(*highlight_coords.T, "-", lw=2.4, color="#4A7FBF", alpha=0.9)
 
     by_class: dict[str, list[np.ndarray]] = {}
     for item in mapped:
@@ -91,6 +112,13 @@ def render_static_png(
     for class_name, coords in by_class.items():
         arr = np.array(coords)
         ax.scatter(*arr.T, color=colors.get(class_name), s=40, edgecolors="white", label=class_name)
+
+    if highlight_coords is not None and len(highlight_coords) > 0:
+        mins = highlight_coords.min(axis=0) - zoom_padding
+        maxs = highlight_coords.max(axis=0) + zoom_padding
+        ax.set_xlim(mins[0], maxs[0])
+        ax.set_ylim(mins[1], maxs[1])
+        ax.set_zlim(mins[2], maxs[2])
 
     footnote = f"{len(mapped)} variant(s) plotted"
     if n_unmapped:
@@ -116,7 +144,17 @@ def render_interactive_html(
     *,
     title: str,
     cache_dir: str | Path,
+    highlight_resnums: set[int] | None = None,
 ) -> Path:
+    """Render an interactive, self-contained HTML viewer.
+
+    highlight_resnums -- structure resnums belonging to the domain being
+    visualized (if any). When given, that residue range is colored
+    distinctly and the initial camera zooms to it instead of the whole
+    structure -- without this, every domain's HTML shows the same
+    whole-structure view and is indistinguishable from the others except
+    for which spheres happen to be colored.
+    """
     js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
     if not js_path.exists():
         raise RenderError(
@@ -130,6 +168,9 @@ def render_interactive_html(
     view = py3Dmol.view(width=900, height=650, js="")
     view.addModel(struct.raw_text, struct.fmt)
     view.setStyle({}, {"cartoon": {"color": "lightgray"}})
+    if highlight_resnums:
+        highlight_sel = {"chain": struct.chain_id, "resi": sorted(highlight_resnums)}
+        view.setStyle(highlight_sel, {"cartoon": {"color": "steelblue"}})
     for item in mapped:
         x, y, z = (float(c) for c in item["coord"])
         view.addSphere(
@@ -139,7 +180,10 @@ def render_interactive_html(
                 "color": colors.get(item["class_name"]),
             }
         )
-    view.zoomTo()
+    if highlight_resnums:
+        view.zoomTo(highlight_sel)
+    else:
+        view.zoomTo()
     viewer_html = view.write_html()
 
     legend_html = _build_legend_html(colors.legend_items())
