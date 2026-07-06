@@ -11,7 +11,7 @@
 # disproportionately affecting the Nontrafficking class. Unlike BRCA2's rat
 # ortholog, 6A70's PKD1 chain uses native human UniProt numbering directly.
 set -euo pipefail
-cd /home/jv2807/protein_vis
+cd /home/jv2807/dms_side_projects/protein_vis
 
 sbatch slurm/run_visualize.sh \
     /scratch/jv2807/pkd1/data/pkd1_variants_labeled.csv \

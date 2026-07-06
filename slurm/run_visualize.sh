@@ -3,8 +3,8 @@
 #SBATCH --time=0:30:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
-#SBATCH --chdir=/home/jv2807/protein_vis
-#SBATCH --output=/home/jv2807/protein_vis/slurm/logs/%j.out
+#SBATCH --chdir=/home/jv2807/dms_side_projects/protein_vis
+#SBATCH --output=/home/jv2807/dms_side_projects/protein_vis/slurm/logs/%j.out
 #SBATCH --job-name=protein_vis_render
 #SBATCH --mail-user=jv2807@nyu.edu
 #SBATCH --mail-type=ALL
@@ -32,7 +32,7 @@ CACHE_DIR="$5"
 OUTPUT_DIR="$6"
 JOB_LABEL="${7:-protein_vis_render}"
 
-exec > >(tee "/home/jv2807/protein_vis/slurm/logs/${JOB_LABEL}.log") 2>&1
+exec > >(tee "/home/jv2807/dms_side_projects/protein_vis/slurm/logs/${JOB_LABEL}.log") 2>&1
 
 SINGULARITY_OVERLAY="/scratch/jv2807/protein_vis_singularity/protein_vis.ext3"
 SINGULARITY_IMAGE="/share/apps/images/cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif"
@@ -45,7 +45,7 @@ echo "[${JOB_LABEL}] structure=${STRUCTURE_SPEC} uniprot=${UNIPROT_ACCESSION}"
 echo "[${JOB_LABEL}] domains=${DOMAINS_CONFIG}"
 echo "[${JOB_LABEL}] output_dir=${OUTPUT_DIR}"
 
-$SIF_CPU "source /ext3/env.sh && cd /home/jv2807/protein_vis && python -m protein_vis.cli render \
+$SIF_CPU "source /ext3/env.sh && cd /home/jv2807/dms_side_projects/protein_vis && python -m protein_vis.cli render \
     --variants ${VARIANTS_CSV} \
     --structure ${STRUCTURE_SPEC} \
     --uniprot ${UNIPROT_ACCESSION} \

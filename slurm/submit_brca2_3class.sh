@@ -5,7 +5,7 @@
 # CSV is built. Same structure/domain config as the hypomorphic-only run
 # (PDB 1IYJ chain B, configs/domains/P51587.yaml).
 set -euo pipefail
-cd /home/jv2807/protein_vis
+cd /home/jv2807/dms_side_projects/protein_vis
 
 sbatch slurm/run_visualize.sh \
     /scratch/jv2807/sounak_brca2/dataset/brca2_panelC_and_6k_3class.csv \

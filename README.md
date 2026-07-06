@@ -92,7 +92,7 @@ protein-vis fetch \
 
 ## Example runs
 
-Three runs exist so far, each with its own `submit_*.sh` wrapper:
+Four runs exist so far, each with its own `submit_*.sh` wrapper:
 
 **BRCA2, panel-C hypomorphic only** (`slurm/submit_brca2_hypomorphic.sh`).
 BRCA2 (UniProt P51587, 3418 aa) has no AlphaFold DB model (excluded from the
@@ -116,6 +116,18 @@ graded ACMG classifications (`scripts/build_brca2_3class_variants.py`):
 are dropped, protein-level variants with conflicting benign/pathogenic
 calls across duplicate genomic-level entries are dropped and logged, and
 **hypomorphic takes precedence** over benign/pathogenic on overlap.
+
+**BRCA2, 3-class, PDB 1MIU** (`slurm/submit_brca2_3class_1miu.sh`). Same
+3980-variant dataset and domain config as the 1IYJ 3-class run above, but
+against **PDB 1MIU chain A** (Yang et al. 2002, *Science*) instead -- the
+same crystallographic study's **mouse** BRCA2(2378-3115)-DSS1 complex,
+rather than 1IYJ's **rat** construct. Alignment identity/coverage is
+similar (~78.2% identity, 19.6% coverage vs. 1IYJ's 78.1%/17.2%), but 1MIU's
+longer resolved span yields more mapped variants (3598 vs. 3141 of 3980).
+Results are written to a separate directory
+(`/scratch/jv2807/sounak_brca2/results/protein_vis_panelC_3class_1MIU`) so
+they can be compared side-by-side with the 1IYJ run rather than overwriting
+it.
 
 **PKD1 (Polycystin-1)** (`slurm/submit_pkd1.sh`). PKD1 (UniProt P98161, 4303
 aa) also has no AlphaFold model. Structure is **PDB 6A70** (Su et al. 2018,

@@ -7,7 +7,7 @@
 # (~78% identity to human), not raw residue-number equality -- see
 # configs/domains/P51587.yaml and src/protein_vis/structure.py for detail.
 set -euo pipefail
-cd /home/jv2807/protein_vis
+cd /home/jv2807/dms_side_projects/protein_vis
 
 sbatch slurm/run_visualize.sh \
     /scratch/jv2807/sounak_brca2/dataset/brca2_panelC_hypomorphic.csv \
