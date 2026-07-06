@@ -2,11 +2,14 @@ from pathlib import Path
 
 import pytest
 
+import pandas as pd
+
 from protein_vis.variants import (
     VariantParseError,
     VariantValidationError,
     load_variant_table,
     parse_variant,
+    pivot_long_to_wide,
     validate_against_sequence,
 )
 
@@ -71,3 +74,17 @@ def test_validate_against_sequence_out_of_range_dropped():
     validated, messages = validate_against_sequence(df, REFERENCE_SEQ, strict=True)
     assert 999 not in validated["pos"].values
     assert any("out of range" in m for m in messages)
+
+
+def test_pivot_long_to_wide_pads_ragged_and_dedupes():
+    long_df = pd.DataFrame(
+        {
+            "raw": ["L2484P", "S2516A", "S2516A", "K2551I"],
+            "class_name": ["benign", "benign", "benign", "pathogenic"],
+        }
+    )
+    wide = pivot_long_to_wide(long_df, variant_col="raw", class_col="class_name")
+    assert set(wide.columns) == {"benign", "pathogenic"}
+    assert wide["benign"].dropna().tolist() == ["L2484P", "S2516A"]  # deduped + sorted
+    assert wide["pathogenic"].dropna().tolist() == ["K2551I"]
+    assert pd.isna(wide["pathogenic"].iloc[1])  # ragged padding

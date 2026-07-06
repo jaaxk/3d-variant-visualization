@@ -1,0 +1,44 @@
+# Curated sub-domain boundaries for PKD1 / Polycystin-1 (UniProt P98161,
+# human, 4303 aa), restricted to the region resolved in PDB 6A70 (the
+# PKD1-PKD2 complex cryo-EM structure, chain B, residues 3049-4169 -- see
+# Su H, Wang X, Zhu Y, Sui Q, Rao Z, Zheng L, Fei X. "Structure of the human
+# PKD1-PKD2 complex." Science. 2018;361(6404):eaat9819. PDB 6A70.
+#
+# Unlike BRCA2's 1IYJ, 6A70's PKD1 chain uses NATIVE human UniProt numbering
+# (DBREF 6A70 chain B == UNP P98161 3049-4169 exactly), so no ortholog/
+# renumbering caveat applies here -- protein_vis still aligns via sequence
+# (see structure.align_to_reference) rather than assuming this, but expect
+# ~100% identity.
+#
+# The paper describes PKD1's channel-forming region as: a "five-transmembrane
+# helix domain" novel to PKD1, plus a cytosolic PLAT domain, plus a
+# "voltage-gated ion channel (VGIC) fold" (an S1-S6-like module, homologous
+# to PKD2's own channel domain) that contributes the voltage-sensor-like
+# domain (VSLD), pore, and TOP domain to the shared channel pore. The paper
+# text does not give exact residue boundaries for VSLD vs. pore vs. TOP
+# individually, so the domains below use UniProt's own OFFICIAL structural
+# feature annotations (transmembrane helices, topological domains, PLAT
+# domain -- themselves informed by this same structure) as the boundary
+# source, at the granularity of "five-TM domain" vs. "VGIC/pore module"
+# described in the paper, rather than guessing finer VSLD/pore/TOP splits.
+# Treat these as approximate; refine if you have access to the primary
+# figures/methods with exact boundaries.
+
+uniprot_accession: P98161
+protein_length: 4303
+
+domains:
+  - name: PLAT_domain
+    start: 3118
+    end: 3233
+    source: "UniProt official feature annotation (Domain: PLAT)"
+
+  - name: Five_TM_domain
+    start: 3049
+    end: 3603
+    source: "Su et al. 2018 Science (PDB 6A70) 'five-transmembrane helix domain' novel to PKD1; boundaries from UniProt transmembrane features TM1 (3075-3095) through TM5 (3560-3603), extended to 6A70's N-terminal coverage limit (3049)"
+
+  - name: VGIC_pore_module
+    start: 3604
+    end: 4169
+    source: "Su et al. 2018 Science (PDB 6A70) 'VGIC fold' (S1-S6-like module contributing VSLD + pore + TOP domain); boundaries from UniProt transmembrane features TM6 (3666-3686) through TM11 (4091-4110), extended to 6A70's C-terminal coverage limit (4169)"

@@ -99,6 +99,24 @@ def load_variant_table(csv_path: str | Path) -> pd.DataFrame:
     return result.reset_index(drop=True)
 
 
+def pivot_long_to_wide(
+    long_df: pd.DataFrame, *, variant_col: str, class_col: str
+) -> pd.DataFrame:
+    """Inverse of load_variant_table's melt step.
+
+    Turns (class, variant) pairs into the one-column-per-class wide CSV
+    protein_vis expects, deduping within each class and padding ragged
+    columns with blank cells. Used by data-prep scripts that build a
+    variants CSV from external sources (e.g. merging multiple annotation
+    files) rather than starting from one already in the wide format.
+    """
+    columns = {
+        class_name: pd.Series(sorted(sub[variant_col].unique()))
+        for class_name, sub in long_df.groupby(class_col)
+    }
+    return pd.DataFrame(columns)
+
+
 def validate_against_sequence(
     df: pd.DataFrame, reference_seq: str, *, strict: bool = True
 ) -> tuple[pd.DataFrame, list[str]]:

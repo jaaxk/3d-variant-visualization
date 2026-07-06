@@ -70,50 +70,76 @@ design, e.g. a sub-domain nested inside a larger one).
 
 ```bash
 # One-time, per machine: create + provision the Singularity overlay (see
-# "Container setup" below). Then, on the login node:
+# "Container setup" below, or the `environments` skill for the general
+# pattern). Fetch is network-dependent -- do it on the login node, or via a
+# quick srun allocation:
 
 protein-vis fetch \
   --structure pdb:1IYJ --uniprot P51587 \
   --cache-dir /scratch/$USER/my_project/structure_cache --bootstrap-js
 
-# Then submit rendering as a SLURM job (see slurm/run_visualize_brca2.sh for
-# a full example) -- it only calls `protein-vis render`, never touches the
-# network:
-
-protein-vis render \
-  --variants variants_labeled.csv \
-  --structure pdb:1IYJ:B \
-  --uniprot P51587 \
-  --cache-dir /scratch/$USER/my_project/structure_cache \
-  --domains configs/domains/P51587.yaml \
-  --output-dir /scratch/$USER/my_project/results
+# Rendering (offline, no network) always goes through SLURM. There's one
+# generic job script -- slurm/run_visualize.sh -- that takes all
+# configuration as positional args:
+#
+#   sbatch slurm/run_visualize.sh <variants_csv> <structure_spec> \
+#       <uniprot_accession> <domains_config> <cache_dir> <output_dir> [job_label]
+#
+# Don't call it with raw paths from the shell though -- write a thin
+# `slurm/submit_<run_name>.sh` wrapper (see the existing submit_*.sh files)
+# that documents exactly how that run was invoked, for reproducibility.
 ```
 
-## BRCA2 test case (panel-C, "hypomorphic")
+## Example runs
 
+Three runs exist so far, each with its own `submit_*.sh` wrapper:
+
+**BRCA2, panel-C hypomorphic only** (`slurm/submit_brca2_hypomorphic.sh`).
 BRCA2 (UniProt P51587, 3418 aa) has no AlphaFold DB model (excluded from the
-bulk release, likely due to size) and no human PDB structure of its DNA-binding
-domain. The only structural coverage of that region is **PDB 1IYJ** (Yang et
-al. 2002, *Science*) -- the **rat** BRCA2 DBD-DSS1-ssDNA complex, ~79% identity
-to human. `protein-vis` maps human variant positions onto it via the real
-sequence alignment described above (not raw residue-number equality), and
-reports the resulting identity/coverage in `run_report.json` and in each
-HTML's header so nobody mistakes it for a human structure.
+bulk release, likely due to size) and no human PDB structure of its
+DNA-binding domain. The only structural coverage of that region is **PDB
+1IYJ** (Yang et al. 2002, *Science*) -- the **rat** BRCA2 DBD-DSS1-ssDNA
+complex, ~78% identity to human. `protein-vis` maps human variant positions
+onto it via the real sequence alignment described above (not raw
+residue-number equality), and reports the resulting identity/coverage in
+`run_report.json` and in each HTML's header so nobody mistakes it for a
+human structure. The 135 panel-C variants (positions 2484-3180) span five
+curated sub-domains of the DBD (`Helical`, `OB1`, `Tower`, `OB2`, `OB3` --
+see `configs/domains/P51587.yaml`), so this run produces one HTML/PNG pair
+per sub-domain plus a whole-structure overview.
 
-The 136 panel-C variants (positions 2484-3180) span five curated sub-domains
-of the DBD (`Helical`, `OB1`, `Tower`, `OB2`, `OB3` -- see
-`configs/domains/P51587.yaml` for sourcing), so this run produces one HTML/PNG
-pair per sub-domain plus a whole-structure overview. See
-`slurm/run_visualize_brca2.sh` for the exact end-to-end commands.
+**BRCA2, 3-class (benign / pathogenic / hypomorphic)**
+(`slurm/submit_brca2_3class.sh`). Same structure/domains as above, but the
+input CSV merges the panel-C hypomorphic list with `6k_dms_dataset.xlsx`'s
+graded ACMG classifications (`scripts/build_brca2_3class_variants.py`):
+`Benign */Pathogenic *` collapse to `benign`/`pathogenic`, `Uncertain` rows
+are dropped, protein-level variants with conflicting benign/pathogenic
+calls across duplicate genomic-level entries are dropped and logged, and
+**hypomorphic takes precedence** over benign/pathogenic on overlap.
+
+**PKD1 (Polycystin-1)** (`slurm/submit_pkd1.sh`). PKD1 (UniProt P98161, 4303
+aa) also has no AlphaFold model. Structure is **PDB 6A70** (Su et al. 2018,
+*Science*) -- the human PKD1-PKD2 complex cryo-EM structure -- but its PKD1
+chain only covers residues 3049-4169 (the transmembrane/pore-forming
+region), so ~42% of variants (mostly in the large N-terminal extracellular
+domain) show as unmapped; this disproportionately affects the
+`Nontrafficking` class. Unlike 1IYJ, 6A70's PKD1 chain uses native human
+UniProt numbering directly. Classes come straight from the `Pathogenicity
+mechanism` column (`Benign` / `Nontrafficking` / `Function`) via
+`scripts/build_pkd1_variants.py`. Domains are `PLAT_domain`, `Five_TM_domain`,
+`VGIC_pore_module` (see `configs/domains/P98161.yaml`).
 
 ## Container setup (one-time, manual)
 
+See the `environments` skill for the general Torch HPC pattern (why
+`apptainer overlay create` and not the gzipped `/share/apps/overlay-fs-ext3/`
+templates, the Miniforge URL, the NFS stale-lock gotcha, etc). Concretely,
+for this project:
+
 ```bash
 mkdir -p /scratch/$USER/protein_vis_singularity
-cd /scratch/$USER/protein_vis_singularity
-cp /share/apps/overlay-fs-ext3/overlay-5GB-200K.ext3.gz .
-gunzip overlay-5GB-200K.ext3.gz
-mv overlay-5GB-200K.ext3 protein_vis.ext3
+apptainer overlay create --size 5000 --sparse --create-dir ext3 \
+  /scratch/$USER/protein_vis_singularity/protein_vis.ext3
 
 singularity exec --overlay protein_vis.ext3:rw \
   /share/apps/images/cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif \
@@ -135,8 +161,11 @@ EOF
 ```
 
 No GPU is required for this workload (pandas/biopython/py3Dmol/matplotlib
-are all CPU-only, lightweight); the SLURM script accordingly requests no
-`--gres`/`--nv`.
+are all CPU-only, lightweight); `slurm/run_visualize.sh` accordingly
+requests no `--gres`/`--nv`. All of the above -- including package installs
+and dataset inspection, not just rendering -- should go through `srun`, not
+run directly on the login node (only `protein-vis fetch`'s actual network
+calls are a login-node exception, being genuinely negligible).
 
 ## Repository layout
 
@@ -150,8 +179,12 @@ src/protein_vis/
   render.py      interactive HTML (py3Dmol, offline-JS-inlined) + static PNG
   pipeline.py    orchestration
 configs/domains/  per-protein curated domain boundary YAMLs
-scripts/          prepare_variant_csv.py (single-column -> labeled CSV)
-slurm/            SLURM submission scripts
+scripts/          data-prep helpers -- prepare_variant_csv.py (single-column
+                  -> labeled CSV), build_brca2_3class_variants.py, and
+                  build_pkd1_variants.py (bespoke per-dataset reformatters;
+                  see "Example runs" above)
+slurm/            run_visualize.sh (generic, parameterized) + one
+                  submit_<run_name>.sh wrapper per historical run
 tests/            pytest, fully offline (no network/cluster required)
 ```
 
