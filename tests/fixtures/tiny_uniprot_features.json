@@ -1,0 +1,19 @@
+{
+  "features": [
+    {
+      "type": "Domain",
+      "description": "Core domain",
+      "location": {"start": {"value": 5}, "end": {"value": 14}}
+    },
+    {
+      "type": "Repeat",
+      "description": "BRCA2 1",
+      "location": {"start": {"value": 1}, "end": {"value": 2}}
+    },
+    {
+      "type": "Chain",
+      "description": "Ignored feature type",
+      "location": {"start": {"value": 1}, "end": {"value": 18}}
+    }
+  ]
+}

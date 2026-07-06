@@ -1,0 +1,9 @@
+*.pyc
+**/__pycache__
+slurm/logs/*
+!slurm/logs/.gitkeep
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/

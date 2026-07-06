@@ -1,0 +1,58 @@
+# Curated sub-domain boundaries for BRCA2 (UniProt P51587, human, 3418 aa).
+#
+# UniProt's own REST features for P51587 do NOT resolve Helical/OB1/Tower/
+# OB2/OB3 as "Domain"-typed features -- only functional interaction Regions
+# (e.g. "Interaction with SEM1: 2481-2832") and the 8 BRC Repeats
+# (1002-2085 overall). The boundaries below fill that gap with a manual
+# curation.
+#
+# Sub-domain boundaries are APPROXIMATE, taken from the structural/functional
+# domain organization described in:
+#   Yang H, Jeffrey PD, Miller J, et al. "BRCA2 function in DNA binding and
+#   recombination from a BRCA2-DSS1-ssDNA structure." Science. 2002;
+#   297(5588):1837-48. PDB 1IYJ.
+#
+# NOTE: 1IYJ is the RAT BRCA2 DBD-DSS1-ssDNA structure (UniProt O35923), not
+# human -- there is no human BRCA2 DNA-binding-domain crystal/cryo-EM
+# structure in the PDB. The boundaries below are expressed in HUMAN UniProt
+# numbering (matching this repo's variant CSV convention); protein_vis maps
+# them onto whatever structure is actually loaded via a sequence alignment
+# (see structure.align_to_reference), never via raw residue-number equality.
+#
+# Domains intentionally overlap slightly (Tower is a sub-domain inserted
+# within OB2's span) -- a variant may legitimately be assigned to more than
+# one domain; protein_vis renders it in every domain visualization it falls in.
+
+uniprot_accession: P51587
+protein_length: 3418
+
+domains:
+  - name: BRC_repeats
+    start: 1002
+    end: 2085
+    source: "UniProt Repeat features BRCA2-1..8"
+
+  - name: Helical
+    start: 2481
+    end: 2667
+    source: "Yang et al. 2002 Science / PDB 1IYJ (approximate)"
+
+  - name: OB1
+    start: 2670
+    end: 2803
+    source: "Yang et al. 2002 Science / PDB 1IYJ (approximate)"
+
+  - name: Tower
+    start: 2811
+    end: 2957
+    source: "Yang et al. 2002 Science / PDB 1IYJ (approximate); nested within OB2"
+
+  - name: OB2
+    start: 2803
+    end: 3057
+    source: "Yang et al. 2002 Science / PDB 1IYJ (approximate)"
+
+  - name: OB3
+    start: 3057
+    end: 3190
+    source: "Yang et al. 2002 Science / PDB 1IYJ (approximate)"
