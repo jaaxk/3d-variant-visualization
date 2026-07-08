@@ -1,4 +1,9 @@
-from protein_vis.colors import ColorMap, CLASS_COLORS, FALLBACK_CYCLE
+from protein_vis.colors import (
+    CLASS_COLORS,
+    FALLBACK_CYCLE,
+    ColorMap,
+    generate_categorical_palette,
+)
 
 
 def test_known_class_uses_exact_palette():
@@ -30,3 +35,19 @@ def test_legend_items_preserve_first_seen_order():
         ("Benign", CLASS_COLORS["Benign"]),
         ("Pathogenic", CLASS_COLORS["Pathogenic"]),
     ]
+
+
+def test_generate_categorical_palette_returns_n_unique_colors():
+    for n in (0, 1, 3, len(FALLBACK_CYCLE), len(FALLBACK_CYCLE) + 1, 31):
+        palette = generate_categorical_palette(n)
+        assert len(palette) == n
+        assert len(set(palette)) == n
+        for color in palette:
+            assert color.startswith("#") and len(color) == 7
+
+
+def test_colormap_uses_custom_fallback_cycle():
+    palette = generate_categorical_palette(5)
+    cm = ColorMap(fallback_cycle=palette)
+    assigned = [cm.get(f"domain_{i}") for i in range(5)]
+    assert assigned == palette

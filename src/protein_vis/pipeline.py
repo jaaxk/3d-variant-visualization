@@ -3,8 +3,11 @@
 Reads a variant CSV, a structure previously cached by `protein-vis fetch`,
 and a domain config; validates and aligns everything; and renders one
 interactive HTML + static PNG pair per domain that has >=1 assigned variant,
-plus one always-on whole-structure overview. Never touches the network --
-that boundary is enforced by structure.load_structure / load_uniprot_sequence
+plus two always-on whole-structure renders: a plain overview (variants
+colored by class) and a domain overview (backbone colored by domain, all
+domains at once, variants still colored by class) -- see
+render.render_domain_overview_html/_png. Never touches the network -- that
+boundary is enforced by structure.load_structure / load_uniprot_sequence
 raising if the required fetch hasn't happened yet.
 """
 
@@ -17,23 +20,8 @@ from . import domains as domains_mod
 from . import render as render_mod
 from . import structure as structure_mod
 from . import variants as variants_mod
-from .colors import ColorMap
+from .colors import ColorMap, generate_categorical_palette
 from .domains import Domain
-from .structure import AlignmentResult
-
-
-def _resnums_for_domain(domain: Domain, alignment: AlignmentResult) -> set[int]:
-    """Structure resnums covered by a domain's reference-sequence range.
-
-    Used to highlight/zoom to a domain's own backbone segment rather than
-    always showing the whole structure -- otherwise every domain's
-    visualization looks identical apart from which variants are colored.
-    """
-    return {
-        alignment.pos_to_resnum[pos]
-        for pos in range(domain.start, domain.end + 1)
-        if pos in alignment.pos_to_resnum
-    }
 
 
 def run_render(
@@ -87,8 +75,11 @@ def run_render(
 
     domains_by_name = {d.name: d for d in domains_list}
 
-    print(f"[6/6] rendering {1 + len(groups)} visualization(s) to {output_dir}")
+    print(f"[6/6] rendering {2 + len(groups)} visualization(s) to {output_dir}")
     colors = ColorMap()
+    domain_colors = ColorMap(fallback_cycle=generate_categorical_palette(len(domains_list)))
+    for domain in domains_list:
+        domain_colors.get(domain.name)  # pre-seed so the legend follows domain_list's N->C order
     report: dict = {
         "structure_spec": structure_spec,
         "uniprot_accession": uniprot_accession,
@@ -100,7 +91,7 @@ def run_render(
     }
 
     def _render_one(name: str, sub_df, title: str, domain: Domain | None = None) -> None:
-        highlight_resnums = _resnums_for_domain(domain, alignment) if domain else None
+        highlight_resnums = domains_mod.resnums_for_domain(domain, alignment) if domain else None
         html_path = output_dir / f"{name}.html"
         png_path = output_dir / f"{name}.png"
         render_mod.render_interactive_html(
@@ -122,6 +113,27 @@ def run_render(
               f"({len(mapped)} mapped, {n_unmapped} unmapped)")
 
     _render_one("overview", long_df, f"{uniprot_accession} — whole structure overview")
+
+    domain_overview_html = output_dir / "domain_overview.html"
+    domain_overview_png = output_dir / "domain_overview.png"
+    render_mod.render_domain_overview_html(
+        struct, long_df, alignment, colors, domain_colors, domains_list, domain_overview_html,
+        title=f"{uniprot_accession} — domain architecture", cache_dir=cache_dir,
+    )
+    render_mod.render_domain_overview_png(
+        struct, long_df, alignment, colors, domain_colors, domains_list, domain_overview_png,
+        title=f"{uniprot_accession} — domain architecture",
+    )
+    mapped, n_unmapped = render_mod._variant_positions_with_coords(long_df, struct, alignment)
+    report["domain_overview"] = {
+        "n_variants": len(long_df),
+        "n_mapped": len(mapped),
+        "n_unmapped": n_unmapped,
+        "n_domains_colored": len(domains_list),
+    }
+    print(f"      wrote {domain_overview_html.name} / {domain_overview_png.name} "
+          f"({len(mapped)} mapped, {n_unmapped} unmapped, {len(domains_list)} domain(s) colored)")
+
     for name, sub_df in groups.items():
         _render_one(name, sub_df, f"{uniprot_accession} — domain: {name}", domain=domains_by_name[name])
 

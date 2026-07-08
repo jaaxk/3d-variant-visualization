@@ -59,6 +59,8 @@ def test_pipeline_smoke_end_to_end(tmp_path):
 
     assert (output_dir / "overview.html").exists()
     assert (output_dir / "overview.png").exists()
+    assert (output_dir / "domain_overview.html").exists()
+    assert (output_dir / "domain_overview.png").exists()
     assert (output_dir / "core_domain.html").exists()
     assert (output_dir / "core_domain.png").exists()
     # unused_domain has zero assigned variants -- must not be rendered.
@@ -73,6 +75,11 @@ def test_pipeline_smoke_end_to_end(tmp_path):
     # highlighted/zoomed to; the overview has no single domain to highlight.
     assert report["domains_rendered"]["core_domain"]["n_structure_residues_highlighted"] == 10
     assert report["domains_rendered"]["overview"]["n_structure_residues_highlighted"] is None
+    # domain_overview colors every configured domain, including
+    # unused_domain (which has zero assigned variants but still exists as a
+    # named domain in the config) -- both domains from tiny_domains.yaml.
+    assert report["domain_overview"]["n_domains_colored"] == 2
+    assert report["domain_overview"]["n_variants"] == 5
 
 
 def test_pipeline_smoke_auto_domains(tmp_path):
@@ -90,7 +97,12 @@ def test_pipeline_smoke_auto_domains(tmp_path):
         min_identity=0.5,
     )
 
+    assert (output_dir / "domain_overview.html").exists()
+    assert (output_dir / "domain_overview.png").exists()
+
     report = json.loads((output_dir / "run_report.json").read_text())
     # tiny_uniprot_features.json's "Core_domain" feature (5-14) should catch
     # all 5 fixture variants (positions 5-9).
     assert "Core_domain" in report["domains_rendered"]
+    # "Core_domain" (Domain) + "BRCA2_1" (Repeat) -- "Chain" type is excluded.
+    assert report["domain_overview"]["n_domains_colored"] == 2

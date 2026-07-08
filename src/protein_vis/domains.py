@@ -16,6 +16,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from .structure import AlignmentResult
+
 
 @dataclass(frozen=True)
 class Domain:
@@ -83,6 +85,22 @@ def write_domain_config(
         ],
     }
     Path(out_path).write_text(yaml.safe_dump(payload, sort_keys=False))
+
+
+def resnums_for_domain(domain: Domain, alignment: AlignmentResult) -> set[int]:
+    """Structure resnums covered by a domain's reference-sequence range.
+
+    Used to highlight/zoom to a domain's own backbone segment (per-domain
+    renders) or to color a domain's segment distinctly (whole-structure
+    domain overview) -- without this, every domain's visualization would
+    show the same whole-structure view apart from which variants happen to
+    be colored.
+    """
+    return {
+        alignment.pos_to_resnum[pos]
+        for pos in range(domain.start, domain.end + 1)
+        if pos in alignment.pos_to_resnum
+    }
 
 
 def assign_domains(pos: int, domains: list[Domain]) -> list[str]:

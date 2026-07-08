@@ -7,6 +7,8 @@ that visualizations stay visually consistent across repos.
 
 from __future__ import annotations
 
+import colorsys
+
 # Reused verbatim from dms_contrastive/inference/visualize_brca2.py for
 # cross-project visual consistency.
 CLASS_COLORS: dict[str, str] = {
@@ -33,6 +35,46 @@ FALLBACK_CYCLE: list[str] = [
 ]
 
 
+def generate_categorical_palette(n: int) -> list[str]:
+    """Generate `n` visually-distinct hex colors for cases (like a protein's
+    full domain architecture) where the count of categories genuinely
+    exceeds what any fixed qualitative palette can distinguish.
+
+    NOTE: this deliberately departs from the `dataviz` skill's categorical
+    color formula, whose "8 fixed hue anchors, never generated, fold a 9th
+    series into Other/small-multiples/composite-encoding" rule assumes a
+    business-chart series count. A protein's domain architecture is a
+    different kind of artifact -- an established structural-biology
+    convention (PyMOL/ChimeraX "spectrum" domain coloring, UniProt's own
+    feature viewer) where every domain needs its own identifiable color
+    regardless of count, precisely because the whole point of this view is
+    seeing all of them at once (folding extras into "Other" or splitting
+    into small multiples would defeat that -- the per-domain zoomed renders
+    already are the small-multiples view). Beyond ~12 categories no palette
+    stays reliably colorblind-distinguishable (the dataviz skill's own CVD
+    check tops out there); this trades that off deliberately, and the
+    legend always prints each domain's name as text directly next to its
+    swatch so identity is never color-alone.
+
+    Colors are evenly spaced around the hue wheel at fixed
+    saturation/lightness chosen to keep every hue legible against both a
+    light and a dark HTML background (mid-lightness, high-ish saturation --
+    approximating the dataviz skill's OKLCH lightness-band/chroma-floor
+    intent without pulling in an OKLCH-capable dependency for this one
+    secondary, non-dashboard visualization).
+    """
+    if n <= 0:
+        return []
+    saturation = 0.60
+    lightness = 0.55
+    colors = []
+    for i in range(n):
+        hue = i / n
+        r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+        colors.append("#{:02X}{:02X}{:02X}".format(round(r * 255), round(g * 255), round(b * 255)))
+    return colors
+
+
 class ColorMap:
     """Stateful class -> color lookup.
 
@@ -41,10 +83,15 @@ class ColorMap:
     position, across every domain sub-plot rendered in a single pipeline run.
     """
 
-    def __init__(self, overrides: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        overrides: dict[str, str] | None = None,
+        fallback_cycle: list[str] | None = None,
+    ) -> None:
         self._known = dict(CLASS_COLORS)
         if overrides:
             self._known.update(overrides)
+        self._fallback_cycle = fallback_cycle if fallback_cycle is not None else FALLBACK_CYCLE
         self._assigned: dict[str, str] = {}
         self._order: list[str] = []
         self._next_fallback = 0
@@ -63,8 +110,8 @@ class ColorMap:
                     break
 
         if color is None:
-            if self._next_fallback < len(FALLBACK_CYCLE):
-                color = FALLBACK_CYCLE[self._next_fallback]
+            if self._next_fallback < len(self._fallback_cycle):
+                color = self._fallback_cycle[self._next_fallback]
                 self._next_fallback += 1
             else:
                 color = DEFAULT_COLOR

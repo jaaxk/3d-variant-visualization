@@ -4,8 +4,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from protein_vis.colors import ColorMap
-from protein_vis.render import RenderError, render_interactive_html, render_static_png
+from protein_vis.colors import ColorMap, generate_categorical_palette
+from protein_vis.domains import Domain
+from protein_vis.render import (
+    RenderError,
+    render_domain_overview_html,
+    render_domain_overview_png,
+    render_interactive_html,
+    render_static_png,
+)
 from protein_vis.structure import AlignmentResult, StructureData
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -128,3 +135,67 @@ def test_render_interactive_html_missing_js_raises(tmp_path):
             title="test",
             cache_dir=tmp_path / "empty_cache",
         )
+
+
+def _make_domains() -> list[Domain]:
+    # reference positions 5-14 map to structure resnums 101-110 (see
+    # _make_alignment) -- split into two adjacent domains covering it.
+    return [
+        Domain(name="domain_one", start=5, end=9, source="test fixture"),
+        Domain(name="domain_two", start=10, end=14, source="test fixture"),
+    ]
+
+
+def test_render_domain_overview_png_writes_file(tmp_path):
+    struct = _make_tiny_struct()
+    alignment = _make_alignment()
+    class_colors = ColorMap()
+    domains = _make_domains()
+    domain_colors = ColorMap(fallback_cycle=generate_categorical_palette(len(domains)))
+
+    out = render_domain_overview_png(
+        struct,
+        _make_variants_df(),
+        alignment,
+        class_colors,
+        domain_colors,
+        domains,
+        tmp_path / "domain_overview.png",
+        title="test",
+    )
+    assert out.exists()
+    assert out.stat().st_size > 0
+
+
+def test_render_domain_overview_html_shows_both_legends(tmp_path):
+    struct = _make_tiny_struct()
+    alignment = _make_alignment()
+    class_colors = ColorMap()
+    domains = _make_domains()
+    domain_colors = ColorMap(fallback_cycle=generate_categorical_palette(len(domains)))
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "js").mkdir(parents=True)
+    (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+
+    out = render_domain_overview_html(
+        struct,
+        _make_variants_df(),
+        alignment,
+        class_colors,
+        domain_colors,
+        domains,
+        tmp_path / "domain_overview.html",
+        title="test",
+        cache_dir=cache_dir,
+    )
+    html = out.read_text()
+    assert "domain_one" in html
+    assert "domain_two" in html
+    assert "classA" in html
+    assert "classB" in html
+    assert "Domains" in html
+    assert "Variant class" in html
+    # self-contained/offline invariant must still hold for this render path too.
+    assert "THIS_IS_THE_STUB_3DMOL_JS" in html
+    assert "cdn.jsdelivr" not in html
+    assert "3dmol.org" not in html.lower()

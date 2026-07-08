@@ -8,6 +8,11 @@ structure, this produces:
 - One **interactive, self-contained HTML** file per structural domain that
   has variants, plus one whole-structure overview -- rotatable/zoomable in
   any browser, no server or live Python kernel required.
+- One more always-on **domain overview** -- the whole structure with its
+  backbone colored by domain (every configured/derived domain at once, each
+  its own color, with a legend), variants still overlaid and colored by
+  class as everywhere else, so domain architecture and variant classes can
+  be read together in one view.
 - A matching lightweight static PNG per visualization (quick previews,
   README thumbnails).
 - A `run_report.json` recording variant counts, alignment quality, and any
@@ -92,7 +97,7 @@ protein-vis fetch \
 
 ## Example runs
 
-Four runs exist so far, each with its own `submit_*.sh` wrapper:
+Five runs exist so far, each with its own `submit_*.sh` wrapper:
 
 **BRCA2, panel-C hypomorphic only** (`slurm/submit_brca2_hypomorphic.sh`).
 BRCA2 (UniProt P51587, 3418 aa) has no AlphaFold DB model (excluded from the
@@ -130,7 +135,8 @@ they can be compared side-by-side with the 1IYJ run rather than overwriting
 it.
 
 **PKD1 (Polycystin-1)** (`slurm/submit_pkd1.sh`). PKD1 (UniProt P98161, 4303
-aa) also has no AlphaFold model. Structure is **PDB 6A70** (Su et al. 2018,
+aa) has no model in the bulk **AlphaFold DB** (excluded, likely due to
+size -- same situation as BRCA2). Structure is **PDB 6A70** (Su et al. 2018,
 *Science*) -- the human PKD1-PKD2 complex cryo-EM structure -- but its PKD1
 chain only covers residues 3049-4169 (the transmembrane/pore-forming
 region), so ~42% of variants (mostly in the large N-terminal extracellular
@@ -140,6 +146,29 @@ UniProt numbering directly. Classes come straight from the `Pathogenicity
 mechanism` column (`Benign` / `Nontrafficking` / `Function`) via
 `scripts/build_pkd1_variants.py`. Domains are `PLAT_domain`, `Five_TM_domain`,
 `VGIC_pore_module` (see `configs/domains/P98161.yaml`).
+
+**PKD1, full-length AlphaFold Server model** (`slurm/submit_pkd1_alphafold.sh`).
+Same `pkd1_variants_labeled.csv` as the 6A70 run above, but against a
+full-length PKD1 structure prediction from **AlphaFold Server** (AF3, run by
+the user directly -- not the bulk AlphaFold DB, which excludes PKD1; see
+`file:<path>` under "Structure" above) instead of 6A70's 3049-4169 fragment:
+`file:/scratch/jv2807/pkd1/data/fold_pkd1_human/fold_pkd1_human_model_0.cif`
+(the top-ranked of 5 output models -- all 5 tie at `ranking_score=0.47`,
+`ptm=0.41`, so "top-ranked by convention" is as good as any; note the
+overall pTM is fairly low, driven down by PKD1's large disordered/uncertain
+extracellular region). It's an mmCIF file, which `protein_vis` already
+parses via the same `file:` source kind as any other structure (`.cif`
+picks `Bio.PDB.MMCIFParser`, `.pdb` picks `PDBParser` --
+`structure.load_structure`); no format-specific code was needed. Covering
+all 4303 residues (native 1-based UniProt numbering, verified, not assumed)
+removes 6A70's coverage gap entirely. Domains use `--domains auto` (31
+UniProt Domain/Region/Repeat features spanning the full protein) rather
+than the curated `P98161.yaml`, which only covers 6A70's fragment --
+exercising the `domain_overview` visualization (see above) meaningfully for
+the first time, since a small curated 3-domain config wouldn't show much
+architecture. Results go to
+`/scratch/jv2807/pkd1/results/protein_vis_pkd1_alphafold/`, separate from
+the 6A70 run.
 
 ## Container setup (one-time, manual)
 
