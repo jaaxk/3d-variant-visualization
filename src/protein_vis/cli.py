@@ -69,10 +69,28 @@ def fetch(structures, accessions, cache_dir, bootstrap_js, force):
          "Naming any one chain in a group of identical-sequence chains labels "
          "the whole group.",
 )
+@click.option(
+    "--class-color", "class_color_pairs", multiple=True,
+    help="Repeatable 'ClassName=#hex' (e.g. 'Benign=#43A047') to override this "
+         "run's variant-class color scheme. Applies only to this invocation --"
+         "colors.py's defaults are untouched, so other proteins/runs are unaffected.",
+)
+@click.option(
+    "--variant-class", "variant_class_pairs", multiple=True,
+    help="Repeatable 'VariantName=ClassName' (e.g. 'R2215W=Temperature_recovered') "
+         "to reassign specific variants to a (possibly synthetic) class before "
+         "rendering -- this class then takes precedence over whatever class the "
+         "variant CSV originally assigned it, since the reassignment happens "
+         "before any coloring/grouping logic runs. Combine with --class-color to "
+         "give the synthetic class its own color.",
+)
 def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_arg,
-           output_dir, no_strict_wt, min_identity, chain_label_pairs):
+           output_dir, no_strict_wt, min_identity, chain_label_pairs, class_color_pairs,
+           variant_class_pairs):
     """Run inside the SLURM job / compute node. Never calls the network."""
     chain_labels = dict(pair.split("=", 1) for pair in chain_label_pairs)
+    class_color_overrides = dict(pair.split("=", 1) for pair in class_color_pairs)
+    variant_class_overrides = dict(pair.split("=", 1) for pair in variant_class_pairs)
     pipeline.run_render(
         variants_csv=variants_csv,
         structure_spec=structure_spec,
@@ -83,6 +101,8 @@ def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_a
         strict_wt=not no_strict_wt,
         min_identity=min_identity,
         chain_labels=chain_labels,
+        class_color_overrides=class_color_overrides,
+        variant_class_overrides=variant_class_overrides,
     )
 
 

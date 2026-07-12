@@ -285,3 +285,28 @@ def test_render_chain_overview_html_without_labels_falls_back_to_chain_ids(tmp_p
     html = out.read_text()
     assert "A, B" in html
     assert ">D<" in html
+
+
+def test_render_interactive_html_shows_variant_labels_when_requested(tmp_path):
+    struct = _make_tiny_struct()
+    alignment = _make_alignment()
+    colors = ColorMap()
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "js").mkdir(parents=True)
+    (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+
+    plain = render_interactive_html(
+        struct, _make_variants_df(), alignment, colors, tmp_path / "plain.html",
+        title="test", cache_dir=cache_dir,
+    )
+    labeled = render_interactive_html(
+        struct, _make_variants_df(), alignment, colors, tmp_path / "labeled.html",
+        title="test", cache_dir=cache_dir, show_variant_labels=True,
+    )
+    # addLabel calls (and hence the variant names) should only appear in the
+    # labeled render -- the plain one stays exactly as before.
+    assert "addLabel" not in plain.read_text()
+    labeled_html = labeled.read_text()
+    assert "addLabel" in labeled_html
+    assert "M5V" in labeled_html
+    assert "A8G" in labeled_html

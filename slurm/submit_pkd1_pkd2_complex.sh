@@ -32,6 +32,15 @@
 # real protein names. This information isn't in the structure file itself
 # (an AlphaFold Server mmCIF's _entity.pdbx_description is empty for every
 # entity), so it's supplied here from what we know built this complex.
+#
+# class_colors / variant_class_overrides: this run's own color scheme --
+# Function=red, Nontrafficking=orange, Benign=green, and a synthetic
+# "Temperature_recovered"=blue class for R2215W/R2220W specifically, which
+# takes precedence over their original Nontrafficking label/color (the
+# variant_class_overrides reassignment happens before any coloring/grouping
+# logic runs, so there's no separate precedence rule to maintain). Passed
+# here rather than hardcoded in colors.py, so other proteins/runs keep their
+# own defaults -- this scheme is specific to this PKD1-PKD2 complex run.
 set -euo pipefail
 cd /home/jv2807/dms_side_projects/protein_vis
 
@@ -43,4 +52,6 @@ sbatch slurm/run_visualize.sh \
     /scratch/jv2807/pkd1/structure_cache \
     /scratch/jv2807/pkd1/results/protein_vis_pkd1_pkd2_complex \
     pkd1_pkd2_complex \
-    "D=PKD1,A=PKD2"
+    "D=PKD1,A=PKD2" \
+    "Function=#E53935,Nontrafficking=#FB8C00,Benign=#43A047,Temperature_recovered=#1E88E5" \
+    "R2215W=Temperature_recovered,R2220W=Temperature_recovered"

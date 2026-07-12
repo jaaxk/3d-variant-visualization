@@ -143,6 +143,23 @@ def render_static_png(
     return out_path
 
 
+def _add_variant_label(view, item: dict) -> None:
+    """Float the variant's name (e.g. 'R2215W') next to its sphere."""
+    x, y, z = (float(c) for c in item["coord"])
+    view.addLabel(
+        item["raw"],
+        {
+            "position": {"x": x, "y": y, "z": z},
+            "backgroundColor": "black",
+            "backgroundOpacity": 0.6,
+            "fontColor": "white",
+            "fontSize": 11,
+            "showBackground": True,
+            "inFront": True,
+        },
+    )
+
+
 def render_interactive_html(
     struct: StructureData,
     variants_df: pd.DataFrame,
@@ -153,6 +170,7 @@ def render_interactive_html(
     title: str,
     cache_dir: str | Path,
     highlight_resnums: set[int] | None = None,
+    show_variant_labels: bool = False,
 ) -> Path:
     """Render an interactive, self-contained HTML viewer.
 
@@ -162,6 +180,11 @@ def render_interactive_html(
     structure -- without this, every domain's HTML shows the same
     whole-structure view and is indistinguishable from the others except
     for which spheres happen to be colored.
+
+    show_variant_labels -- also float each variant's name (e.g. 'R2215W')
+    next to its sphere. Off by default -- callers render a second,
+    "_labeled" copy with this on, so both a clean and a labeled view exist
+    side by side.
     """
     js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
     if not js_path.exists():
@@ -188,6 +211,8 @@ def render_interactive_html(
                 "color": colors.get(item["class_name"]),
             }
         )
+        if show_variant_labels:
+            _add_variant_label(view, item)
     if highlight_resnums:
         view.zoomTo(highlight_sel)
     else:
@@ -332,12 +357,16 @@ def render_domain_overview_html(
     *,
     title: str,
     cache_dir: str | Path,
+    show_variant_labels: bool = False,
 ) -> Path:
     """Whole-structure interactive render with the backbone colored by
     domain -- every domain in `domains` colored simultaneously (later
     domains win on any overlapping residues), instead of a single
     highlighted/zoomed domain. Variants are still colored by class exactly
-    as every other render. No zoom/crop -- shows the whole structure."""
+    as every other render. No zoom/crop -- shows the whole structure.
+
+    show_variant_labels -- also float each variant's name next to its
+    sphere; off by default, see render_interactive_html."""
     js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
     if not js_path.exists():
         raise RenderError(
@@ -368,6 +397,8 @@ def render_domain_overview_html(
                 "color": class_colors.get(item["class_name"]),
             }
         )
+        if show_variant_labels:
+            _add_variant_label(view, item)
     view.zoomTo()
     viewer_html = view.write_html()
 
@@ -513,13 +544,17 @@ def render_chain_overview_html(
     title: str,
     cache_dir: str | Path,
     chain_labels: dict[str, str] | None = None,
+    show_variant_labels: bool = False,
 ) -> Path:
     """Whole-structure interactive render with the backbone colored by
     chain. Meant to be generated only when the structure file has more than
     one chain. Variants still colored by class as everywhere else -- drawn
     larger (no border, so class color stays solid/distinct) and the cartoon
     faded so they stand out against the (now fully opaque, whole-structure)
-    chain coloring."""
+    chain coloring.
+
+    show_variant_labels -- also float each variant's name next to its
+    sphere; off by default, see render_interactive_html."""
     js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
     if not js_path.exists():
         raise RenderError(
@@ -551,6 +586,8 @@ def render_chain_overview_html(
                 "color": class_colors.get(item["class_name"]),
             }
         )
+        if show_variant_labels:
+            _add_variant_label(view, item)
     view.zoomTo()
     viewer_html = view.write_html()
 

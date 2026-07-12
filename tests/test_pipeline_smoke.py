@@ -65,6 +65,13 @@ def test_pipeline_smoke_end_to_end(tmp_path):
     assert (output_dir / "core_domain.png").exists()
     # unused_domain has zero assigned variants -- must not be rendered.
     assert not (output_dir / "unused_domain.html").exists()
+    # every interactive HTML also gets a "_labeled" twin (variant names
+    # floated next to each point) -- doubles the HTML output count.
+    assert (output_dir / "overview_labeled.html").exists()
+    assert (output_dir / "domain_overview_labeled.html").exists()
+    assert (output_dir / "core_domain_labeled.html").exists()
+    assert "addLabel" not in (output_dir / "overview.html").read_text()
+    assert "addLabel" in (output_dir / "overview_labeled.html").read_text()
 
     report = json.loads((output_dir / "run_report.json").read_text())
     assert report["total_variants"] == 5
@@ -106,3 +113,33 @@ def test_pipeline_smoke_auto_domains(tmp_path):
     assert "Core_domain" in report["domains_rendered"]
     # "Core_domain" (Domain) + "BRCA2_1" (Repeat) -- "Chain" type is excluded.
     assert report["domain_overview"]["n_domains_colored"] == 2
+
+
+def test_pipeline_smoke_class_color_and_variant_overrides(tmp_path):
+    cache_dir, structure_spec = _setup_cache(tmp_path)
+    output_dir = tmp_path / "output_overrides"
+
+    pipeline.run_render(
+        variants_csv=FIXTURES / "tiny_variants.csv",
+        structure_spec=structure_spec,
+        uniprot_accession="TEST0001",
+        cache_dir=cache_dir,
+        domains_arg=str(FIXTURES / "tiny_domains.yaml"),
+        output_dir=output_dir,
+        strict_wt=True,
+        min_identity=0.5,
+        class_color_overrides={"classA": "#E53935", "special": "#1E88E5"},
+        variant_class_overrides={"M5V": "special"},
+    )
+
+    report = json.loads((output_dir / "run_report.json").read_text())
+    # M5V was reassigned out of classA into the synthetic "special" class --
+    # this takes precedence over its original class for both counting and
+    # coloring, since the reassignment happens before anything else runs.
+    assert report["class_counts"]["special"] == 1
+    assert report["class_counts"]["classA"] == 2  # K6L, T7S remain
+
+    html = (output_dir / "overview.html").read_text()
+    assert "#1E88E5" in html  # special's overridden color
+    assert "#E53935" in html  # classA's overridden color
+    assert "special" in html  # legend entry for the synthetic class

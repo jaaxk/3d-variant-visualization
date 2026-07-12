@@ -10,9 +10,19 @@ render.render_domain_overview_html/_png. If the structure file has more
 than one distinct chain sequence (e.g. a multimeric complex), a third chain
 overview (backbone colored by chain, identical-sequence chains grouped
 under one color) is also rendered -- see
-render.render_chain_overview_html/_png. Never touches the network -- that
-boundary is enforced by structure.load_structure / load_uniprot_sequence
-raising if the required fetch hasn't happened yet.
+render.render_chain_overview_html/_png. Every interactive HTML is rendered
+twice -- once plain and once as a "<name>_labeled.html" twin with each
+variant's name floated next to its point -- doubling the HTML output count.
+Never touches the network -- that boundary is enforced by
+structure.load_structure / load_uniprot_sequence raising if the required
+fetch hasn't happened yet.
+
+class_color_overrides / variant_class_overrides let a caller retint a
+specific run's variant classes (e.g. "Function=#E53935") and/or reassign
+specific variants to a synthetic class that takes visual precedence (e.g.
+{"R2215W": "Temperature_recovered"}) -- run-specific, passed at invocation
+time (CLI --class-color / --variant-class), not hardcoded in colors.py, so
+the tool stays reusable across proteins/runs with their own default colors.
 """
 
 from __future__ import annotations
@@ -39,6 +49,8 @@ def run_render(
     strict_wt: bool = True,
     min_identity: float = 0.4,
     chain_labels: dict[str, str] | None = None,
+    class_color_overrides: dict[str, str] | None = None,
+    variant_class_overrides: dict[str, str] | None = None,
 ) -> Path:
     cache_dir = Path(cache_dir)
     output_dir = Path(output_dir)
@@ -46,6 +58,11 @@ def run_render(
 
     print(f"[1/6] loading variants from {variants_csv}")
     long_df = variants_mod.load_variant_table(variants_csv)
+    if variant_class_overrides:
+        for raw, new_class in variant_class_overrides.items():
+            n = (long_df["raw"] == raw).sum()
+            long_df.loc[long_df["raw"] == raw, "class_name"] = new_class
+            print(f"      variant override: {raw} -> class {new_class!r} ({n} row(s))")
     print(f"      {len(long_df)} variant(s) across classes: "
           f"{sorted(long_df['class_name'].unique())}")
 
@@ -81,7 +98,7 @@ def run_render(
     domains_by_name = {d.name: d for d in domains_list}
 
     print(f"[6/6] rendering {2 + len(groups)} visualization(s) to {output_dir}")
-    colors = ColorMap()
+    colors = ColorMap(overrides=class_color_overrides)
     domain_colors = ColorMap(fallback_cycle=generate_categorical_palette(len(domains_list)))
     for domain in domains_list:
         domain_colors.get(domain.name)  # pre-seed so the legend follows domain_list's N->C order
@@ -99,10 +116,15 @@ def run_render(
     def _render_one(name: str, sub_df, title: str, domain: Domain | None = None) -> None:
         highlight_resnums = domains_mod.resnums_for_domain(domain, alignment) if domain else None
         html_path = output_dir / f"{name}.html"
+        labeled_html_path = output_dir / f"{name}_labeled.html"
         png_path = output_dir / f"{name}.png"
         render_mod.render_interactive_html(
             struct, sub_df, alignment, colors, html_path, title=title, cache_dir=cache_dir,
             highlight_resnums=highlight_resnums,
+        )
+        render_mod.render_interactive_html(
+            struct, sub_df, alignment, colors, labeled_html_path, title=title, cache_dir=cache_dir,
+            highlight_resnums=highlight_resnums, show_variant_labels=True,
         )
         render_mod.render_static_png(
             struct, sub_df, alignment, colors, png_path, title=title,
@@ -115,16 +137,21 @@ def run_render(
             "n_unmapped": n_unmapped,
             "n_structure_residues_highlighted": len(highlight_resnums) if highlight_resnums else None,
         }
-        print(f"      wrote {html_path.name} / {png_path.name} "
+        print(f"      wrote {html_path.name} / {labeled_html_path.name} / {png_path.name} "
               f"({len(mapped)} mapped, {n_unmapped} unmapped)")
 
     _render_one("overview", long_df, f"{uniprot_accession} — whole structure overview")
 
     domain_overview_html = output_dir / "domain_overview.html"
+    domain_overview_labeled_html = output_dir / "domain_overview_labeled.html"
     domain_overview_png = output_dir / "domain_overview.png"
     render_mod.render_domain_overview_html(
         struct, long_df, alignment, colors, domain_colors, domains_list, domain_overview_html,
         title=f"{uniprot_accession} — domain architecture", cache_dir=cache_dir,
+    )
+    render_mod.render_domain_overview_html(
+        struct, long_df, alignment, colors, domain_colors, domains_list, domain_overview_labeled_html,
+        title=f"{uniprot_accession} — domain architecture", cache_dir=cache_dir, show_variant_labels=True,
     )
     render_mod.render_domain_overview_png(
         struct, long_df, alignment, colors, domain_colors, domains_list, domain_overview_png,
@@ -137,7 +164,8 @@ def run_render(
         "n_unmapped": n_unmapped,
         "n_domains_colored": len(domains_list),
     }
-    print(f"      wrote {domain_overview_html.name} / {domain_overview_png.name} "
+    print(f"      wrote {domain_overview_html.name} / {domain_overview_labeled_html.name} / "
+          f"{domain_overview_png.name} "
           f"({len(mapped)} mapped, {n_unmapped} unmapped, {len(domains_list)} domain(s) colored)")
 
     for name, sub_df in groups.items():
@@ -147,10 +175,16 @@ def run_render(
     if len(chain_groups) > 1:
         chain_colors = ColorMap()
         chain_overview_html = output_dir / "chain_overview.html"
+        chain_overview_labeled_html = output_dir / "chain_overview_labeled.html"
         chain_overview_png = output_dir / "chain_overview.png"
         render_mod.render_chain_overview_html(
             struct, long_df, alignment, colors, chain_colors, chain_overview_html,
             title=f"{uniprot_accession} — chains", cache_dir=cache_dir, chain_labels=chain_labels,
+        )
+        render_mod.render_chain_overview_html(
+            struct, long_df, alignment, colors, chain_colors, chain_overview_labeled_html,
+            title=f"{uniprot_accession} — chains", cache_dir=cache_dir, chain_labels=chain_labels,
+            show_variant_labels=True,
         )
         render_mod.render_chain_overview_png(
             struct, long_df, alignment, colors, chain_colors, chain_overview_png,
@@ -163,7 +197,8 @@ def run_render(
             "n_unmapped": n_unmapped,
             "chains_colored": list(chain_groups),
         }
-        print(f"      wrote {chain_overview_html.name} / {chain_overview_png.name} "
+        print(f"      wrote {chain_overview_html.name} / {chain_overview_labeled_html.name} / "
+              f"{chain_overview_png.name} "
               f"({len(mapped)} mapped, {n_unmapped} unmapped, "
               f"{len(chain_groups)} chain group(s) colored)")
 
