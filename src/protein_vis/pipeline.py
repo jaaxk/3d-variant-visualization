@@ -6,7 +6,10 @@ interactive HTML + static PNG pair per domain that has >=1 assigned variant,
 plus two always-on whole-structure renders: a plain overview (variants
 colored by class) and a domain overview (backbone colored by domain, all
 domains at once, variants still colored by class) -- see
-render.render_domain_overview_html/_png. Never touches the network -- that
+render.render_domain_overview_html/_png. If the structure file has more
+than one chain (e.g. a multimeric complex), a third chain overview
+(backbone colored by chain) is also rendered -- see
+render.render_chain_overview_html/_png. Never touches the network -- that
 boundary is enforced by structure.load_structure / load_uniprot_sequence
 raising if the required fetch hasn't happened yet.
 """
@@ -137,6 +140,29 @@ def run_render(
 
     for name, sub_df in groups.items():
         _render_one(name, sub_df, f"{uniprot_accession} — domain: {name}", domain=domains_by_name[name])
+
+    if len(struct.all_chain_ca_coords) > 1:
+        chain_colors = ColorMap()
+        chain_overview_html = output_dir / "chain_overview.html"
+        chain_overview_png = output_dir / "chain_overview.png"
+        render_mod.render_chain_overview_html(
+            struct, long_df, alignment, colors, chain_colors, chain_overview_html,
+            title=f"{uniprot_accession} — chains", cache_dir=cache_dir,
+        )
+        render_mod.render_chain_overview_png(
+            struct, long_df, alignment, colors, chain_colors, chain_overview_png,
+            title=f"{uniprot_accession} — chains",
+        )
+        mapped, n_unmapped = render_mod._variant_positions_with_coords(long_df, struct, alignment)
+        report["chain_overview"] = {
+            "n_variants": len(long_df),
+            "n_mapped": len(mapped),
+            "n_unmapped": n_unmapped,
+            "chains_colored": list(struct.all_chain_ca_coords),
+        }
+        print(f"      wrote {chain_overview_html.name} / {chain_overview_png.name} "
+              f"({len(mapped)} mapped, {n_unmapped} unmapped, "
+              f"{len(struct.all_chain_ca_coords)} chain(s) colored)")
 
     report_path = output_dir / "run_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True))

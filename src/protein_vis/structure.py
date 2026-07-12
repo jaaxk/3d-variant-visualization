@@ -79,6 +79,10 @@ class StructureData:
     ca_coords: dict[int, np.ndarray]
     raw_text: str
     fmt: Literal["pdb", "cif"]
+    # CA coords per chain for every protein chain in the file (not just the
+    # one selected above) -- used to render a whole-structure "colored by
+    # chain" overview for multi-chain files (e.g. a PKD1-PKD2 complex).
+    all_chain_ca_coords: dict[str, dict[int, np.ndarray]] = field(default_factory=dict)
 
 
 @dataclass
@@ -332,6 +336,16 @@ def load_structure(spec: str, cache_dir: Path) -> StructureData:
         if "CA" in res:
             ca_coords[resnum] = np.array(res["CA"].coord, dtype=float)
 
+    all_chain_ca_coords: dict[str, dict[int, np.ndarray]] = {}
+    for candidate in model:
+        coords = {
+            res.id[1]: np.array(res["CA"].coord, dtype=float)
+            for res in candidate
+            if res.id[0] == " " and res.resname in THREE_TO_ONE and "CA" in res
+        }
+        if coords:
+            all_chain_ca_coords[candidate.id] = coords
+
     return StructureData(
         chain_id=chain.id,
         resnums=resnums,
@@ -339,6 +353,7 @@ def load_structure(spec: str, cache_dir: Path) -> StructureData:
         ca_coords=ca_coords,
         raw_text=path.read_text(),
         fmt=fmt,
+        all_chain_ca_coords=all_chain_ca_coords,
     )
 
 

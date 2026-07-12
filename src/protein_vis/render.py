@@ -409,3 +409,148 @@ def render_domain_overview_html(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(full_html)
     return out_path
+
+
+def render_chain_overview_png(
+    struct: StructureData,
+    variants_df: pd.DataFrame,
+    alignment: AlignmentResult,
+    class_colors: ColorMap,
+    chain_colors: ColorMap,
+    out_path: str | Path,
+    *,
+    title: str,
+) -> Path:
+    """Whole-structure static render with the backbone colored by chain
+    (e.g. PKD1 vs. PKD2 in a multimeric complex) instead of by domain.
+    Meant to be generated only when the structure file has more than one
+    chain. Variants still overlaid and colored by class as everywhere else.
+    """
+    mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
+
+    fig = plt.figure(figsize=(9, 7.5))
+    ax = fig.add_subplot(111, projection="3d")
+
+    for chain_id, coords_by_resnum in struct.all_chain_ca_coords.items():
+        coords = np.array([coords_by_resnum[r] for r in sorted(coords_by_resnum)])
+        ax.plot(*coords.T, "-", lw=1.4, color=chain_colors.get(chain_id), alpha=0.85)
+
+    by_class: dict[str, list[np.ndarray]] = {}
+    for item in mapped:
+        by_class.setdefault(item["class_name"], []).append(item["coord"])
+    for class_name, coords in by_class.items():
+        arr = np.array(coords)
+        ax.scatter(
+            *arr.T, color=class_colors.get(class_name), s=40, edgecolors="white", label=class_name
+        )
+
+    footnote = f"{len(mapped)} variant(s) plotted"
+    if n_unmapped:
+        footnote += f", {n_unmapped} unmapped (outside aligned/resolved structure region)"
+    ax.set_title(f"{title}\n{footnote}", fontsize=10)
+
+    class_legend = None
+    if by_class:
+        class_legend = ax.legend(
+            loc="upper left", fontsize=8, title="Variant class", title_fontsize=8
+        )
+    chain_handles = [
+        Line2D([0], [0], color=chain_colors.get(cid), lw=3) for cid in struct.all_chain_ca_coords
+    ]
+    chain_labels = list(struct.all_chain_ca_coords)
+    ax.legend(chain_handles, chain_labels, loc="upper right", fontsize=8, title="Chain", title_fontsize=8)
+    if class_legend is not None:
+        ax.add_artist(class_legend)
+    ax.set_axis_off()
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def render_chain_overview_html(
+    struct: StructureData,
+    variants_df: pd.DataFrame,
+    alignment: AlignmentResult,
+    class_colors: ColorMap,
+    chain_colors: ColorMap,
+    out_path: str | Path,
+    *,
+    title: str,
+    cache_dir: str | Path,
+) -> Path:
+    """Whole-structure interactive render with the backbone colored by
+    chain. Meant to be generated only when the structure file has more than
+    one chain. Variants still colored by class as everywhere else."""
+    js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
+    if not js_path.exists():
+        raise RenderError(
+            f"no cached 3Dmol.min.js at {js_path} -- run "
+            f"`protein-vis fetch --bootstrap-js` on the login node first"
+        )
+    js_text = js_path.read_text()
+
+    mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
+
+    view = py3Dmol.view(width=900, height=650, js="")
+    view.addModel(struct.raw_text, struct.fmt)
+    view.setStyle({}, {"cartoon": {"color": "lightgray"}})
+
+    chain_legend_items: list[tuple[str, str]] = []
+    for chain_id in struct.all_chain_ca_coords:
+        color = chain_colors.get(chain_id)
+        view.setStyle({"chain": chain_id}, {"cartoon": {"color": color}})
+        chain_legend_items.append((chain_id, color))
+
+    for item in mapped:
+        x, y, z = (float(c) for c in item["coord"])
+        view.addSphere(
+            {
+                "center": {"x": x, "y": y, "z": z},
+                "radius": 1.2,
+                "color": class_colors.get(item["class_name"]),
+            }
+        )
+    view.zoomTo()
+    viewer_html = view.write_html()
+
+    chain_legend_html = _build_legend_html(chain_legend_items, heading="Chain")
+    class_legend_html = _build_legend_html(class_colors.legend_items(), heading="Variant class")
+    footnote = f"{len(mapped)} variant(s) shown"
+    if n_unmapped:
+        footnote += f", {n_unmapped} unmapped (outside aligned/resolved structure region)"
+
+    full_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+</head>
+<body style="margin:0;padding:0;font-family:sans-serif;">
+<h2 style="margin:8px;">{title}</h2>
+<p style="margin:8px;color:#555;font-size:13px;">
+  Structure: {struct.chain_id} | alignment identity {alignment.identity:.1%},
+  coverage {alignment.coverage:.1%} | {footnote}
+</p>
+<div style="display:flex;flex-wrap:wrap;gap:24px;">
+{chain_legend_html}
+{class_legend_html}
+</div>
+<script>{js_text}</script>
+<script>var $3Dmolpromise = Promise.resolve();</script>
+{viewer_html}
+</body>
+</html>"""
+
+    if "cdn.jsdelivr" in full_html or "3dmol.org" in full_html.lower():
+        raise RenderError(
+            "generated HTML unexpectedly references an external CDN -- "
+            "self-contained/offline guarantee violated"
+        )
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(full_html)
+    return out_path
