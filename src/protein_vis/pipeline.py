@@ -7,8 +7,9 @@ plus two always-on whole-structure renders: a plain overview (variants
 colored by class) and a domain overview (backbone colored by domain, all
 domains at once, variants still colored by class) -- see
 render.render_domain_overview_html/_png. If the structure file has more
-than one chain (e.g. a multimeric complex), a third chain overview
-(backbone colored by chain) is also rendered -- see
+than one distinct chain sequence (e.g. a multimeric complex), a third chain
+overview (backbone colored by chain, identical-sequence chains grouped
+under one color) is also rendered -- see
 render.render_chain_overview_html/_png. Never touches the network -- that
 boundary is enforced by structure.load_structure / load_uniprot_sequence
 raising if the required fetch hasn't happened yet.
@@ -141,7 +142,8 @@ def run_render(
     for name, sub_df in groups.items():
         _render_one(name, sub_df, f"{uniprot_accession} — domain: {name}", domain=domains_by_name[name])
 
-    if len(struct.all_chain_ca_coords) > 1:
+    chain_groups = render_mod._group_chains_by_sequence(struct)
+    if len(chain_groups) > 1:
         chain_colors = ColorMap()
         chain_overview_html = output_dir / "chain_overview.html"
         chain_overview_png = output_dir / "chain_overview.png"
@@ -158,11 +160,11 @@ def run_render(
             "n_variants": len(long_df),
             "n_mapped": len(mapped),
             "n_unmapped": n_unmapped,
-            "chains_colored": list(struct.all_chain_ca_coords),
+            "chains_colored": list(chain_groups),
         }
         print(f"      wrote {chain_overview_html.name} / {chain_overview_png.name} "
               f"({len(mapped)} mapped, {n_unmapped} unmapped, "
-              f"{len(struct.all_chain_ca_coords)} chain(s) colored)")
+              f"{len(chain_groups)} chain group(s) colored)")
 
     report_path = output_dir / "run_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True))

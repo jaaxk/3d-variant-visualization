@@ -79,10 +79,13 @@ class StructureData:
     ca_coords: dict[int, np.ndarray]
     raw_text: str
     fmt: Literal["pdb", "cif"]
-    # CA coords per chain for every protein chain in the file (not just the
-    # one selected above) -- used to render a whole-structure "colored by
-    # chain" overview for multi-chain files (e.g. a PKD1-PKD2 complex).
+    # CA coords/sequence per chain for every protein chain in the file (not
+    # just the one selected above) -- used to render a whole-structure
+    # "colored by chain" overview for multi-chain files (e.g. a PKD1-PKD2
+    # complex). Chains with identical sequences (e.g. the 3 PKD2 copies)
+    # are grouped under one color/legend entry rather than one each.
     all_chain_ca_coords: dict[str, dict[int, np.ndarray]] = field(default_factory=dict)
+    all_chain_sequences: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -337,14 +340,15 @@ def load_structure(spec: str, cache_dir: Path) -> StructureData:
             ca_coords[resnum] = np.array(res["CA"].coord, dtype=float)
 
     all_chain_ca_coords: dict[str, dict[int, np.ndarray]] = {}
+    all_chain_sequences: dict[str, str] = {}
     for candidate in model:
-        coords = {
-            res.id[1]: np.array(res["CA"].coord, dtype=float)
-            for res in candidate
-            if res.id[0] == " " and res.resname in THREE_TO_ONE and "CA" in res
-        }
+        standard_res = [
+            res for res in candidate if res.id[0] == " " and res.resname in THREE_TO_ONE
+        ]
+        coords = {res.id[1]: np.array(res["CA"].coord, dtype=float) for res in standard_res if "CA" in res}
         if coords:
             all_chain_ca_coords[candidate.id] = coords
+            all_chain_sequences[candidate.id] = "".join(THREE_TO_ONE[res.resname] for res in standard_res)
 
     return StructureData(
         chain_id=chain.id,
@@ -354,6 +358,7 @@ def load_structure(spec: str, cache_dir: Path) -> StructureData:
         raw_text=path.read_text(),
         fmt=fmt,
         all_chain_ca_coords=all_chain_ca_coords,
+        all_chain_sequences=all_chain_sequences,
     )
 
 

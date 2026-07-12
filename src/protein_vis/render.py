@@ -411,6 +411,18 @@ def render_domain_overview_html(
     return out_path
 
 
+def _group_chains_by_sequence(struct: StructureData) -> dict[str, list[str]]:
+    """Chain ids grouped by identical sequence, e.g. the 3 PKD2 copies in a
+    PKD1-PKD2 complex collapse to one group/color/legend entry instead of
+    three -- "colored by chain" should mean by distinct molecule, not by
+    every individual chain letter."""
+    groups: dict[str, list[str]] = {}
+    for chain_id in struct.all_chain_ca_coords:
+        seq = struct.all_chain_sequences.get(chain_id, "")
+        groups.setdefault(seq, []).append(chain_id)
+    return {", ".join(chain_ids): chain_ids for chain_ids in groups.values()}
+
+
 def render_chain_overview_png(
     struct: StructureData,
     variants_df: pd.DataFrame,
@@ -427,13 +439,17 @@ def render_chain_overview_png(
     chain. Variants still overlaid and colored by class as everywhere else.
     """
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
+    groups = _group_chains_by_sequence(struct)
 
     fig = plt.figure(figsize=(9, 7.5))
     ax = fig.add_subplot(111, projection="3d")
 
-    for chain_id, coords_by_resnum in struct.all_chain_ca_coords.items():
-        coords = np.array([coords_by_resnum[r] for r in sorted(coords_by_resnum)])
-        ax.plot(*coords.T, "-", lw=1.4, color=chain_colors.get(chain_id), alpha=0.85)
+    for label, chain_ids in groups.items():
+        color = chain_colors.get(label)
+        for chain_id in chain_ids:
+            coords_by_resnum = struct.all_chain_ca_coords[chain_id]
+            coords = np.array([coords_by_resnum[r] for r in sorted(coords_by_resnum)])
+            ax.plot(*coords.T, "-", lw=1.4, color=color, alpha=0.85)
 
     by_class: dict[str, list[np.ndarray]] = {}
     for item in mapped:
@@ -454,11 +470,8 @@ def render_chain_overview_png(
         class_legend = ax.legend(
             loc="upper left", fontsize=8, title="Variant class", title_fontsize=8
         )
-    chain_handles = [
-        Line2D([0], [0], color=chain_colors.get(cid), lw=3) for cid in struct.all_chain_ca_coords
-    ]
-    chain_labels = list(struct.all_chain_ca_coords)
-    ax.legend(chain_handles, chain_labels, loc="upper right", fontsize=8, title="Chain", title_fontsize=8)
+    chain_handles = [Line2D([0], [0], color=chain_colors.get(label), lw=3) for label in groups]
+    ax.legend(chain_handles, list(groups), loc="upper right", fontsize=8, title="Chain", title_fontsize=8)
     if class_legend is not None:
         ax.add_artist(class_legend)
     ax.set_axis_off()
@@ -493,16 +506,18 @@ def render_chain_overview_html(
     js_text = js_path.read_text()
 
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
+    groups = _group_chains_by_sequence(struct)
 
     view = py3Dmol.view(width=900, height=650, js="")
     view.addModel(struct.raw_text, struct.fmt)
     view.setStyle({}, {"cartoon": {"color": "lightgray"}})
 
     chain_legend_items: list[tuple[str, str]] = []
-    for chain_id in struct.all_chain_ca_coords:
-        color = chain_colors.get(chain_id)
-        view.setStyle({"chain": chain_id}, {"cartoon": {"color": color}})
-        chain_legend_items.append((chain_id, color))
+    for label, chain_ids in groups.items():
+        color = chain_colors.get(label)
+        for chain_id in chain_ids:
+            view.setStyle({"chain": chain_id}, {"cartoon": {"color": color}})
+        chain_legend_items.append((label, color))
 
     for item in mapped:
         x, y, z = (float(c) for c in item["coord"])
