@@ -16,7 +16,14 @@
 #
 # Usage:
 #   sbatch slurm/run_visualize.sh <variants_csv> <structure_spec> \
-#       <uniprot_accession> <domains_config> <cache_dir> <output_dir> [job_label]
+#       <uniprot_accession> <domains_config> <cache_dir> <output_dir> \
+#       [job_label] [chain_labels]
+#
+# chain_labels (optional) -- comma-separated chain_id=Name pairs (e.g.
+# "D=PKD1,A=PKD2"), only used to label the chain_overview legend for
+# multi-chain structures with real protein names instead of raw chain
+# letters. Naming any one chain in a group of identical-sequence chains
+# labels the whole group.
 #
 # Don't call sbatch directly with raw paths from the shell -- use one of the
 # thin per-run wrapper scripts (submit_*.sh) instead, which document exactly
@@ -31,6 +38,7 @@ DOMAINS_CONFIG="$4"
 CACHE_DIR="$5"
 OUTPUT_DIR="$6"
 JOB_LABEL="${7:-protein_vis_render}"
+CHAIN_LABELS="${8:-}"
 
 exec > >(tee "/home/jv2807/dms_side_projects/protein_vis/slurm/logs/${JOB_LABEL}.log") 2>&1
 
@@ -45,13 +53,22 @@ echo "[${JOB_LABEL}] structure=${STRUCTURE_SPEC} uniprot=${UNIPROT_ACCESSION}"
 echo "[${JOB_LABEL}] domains=${DOMAINS_CONFIG}"
 echo "[${JOB_LABEL}] output_dir=${OUTPUT_DIR}"
 
+CHAIN_LABEL_FLAGS=""
+if [ -n "${CHAIN_LABELS}" ]; then
+    echo "[${JOB_LABEL}] chain_labels=${CHAIN_LABELS}"
+    IFS=',' read -ra PAIRS <<< "${CHAIN_LABELS}"
+    for pair in "${PAIRS[@]}"; do
+        CHAIN_LABEL_FLAGS="${CHAIN_LABEL_FLAGS} --chain-label ${pair}"
+    done
+fi
+
 $SIF_CPU "source /ext3/env.sh && cd /home/jv2807/dms_side_projects/protein_vis && python -m protein_vis.cli render \
     --variants ${VARIANTS_CSV} \
     --structure ${STRUCTURE_SPEC} \
     --uniprot ${UNIPROT_ACCESSION} \
     --cache-dir ${CACHE_DIR} \
     --domains ${DOMAINS_CONFIG} \
-    --output-dir ${OUTPUT_DIR}" \
+    --output-dir ${OUTPUT_DIR}${CHAIN_LABEL_FLAGS}" \
     || { echo "[${JOB_LABEL}] Render FAILED"; exit 1; }
 
 echo ""

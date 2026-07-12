@@ -61,9 +61,18 @@ def fetch(structures, accessions, cache_dir, bootstrap_js, force):
               help="Warn (instead of drop) on WT-residue mismatches vs. the reference sequence.")
 @click.option("--min-identity", default=0.4, show_default=True,
               help="Minimum alignment identity required between structure and reference.")
+@click.option(
+    "--chain-label", "chain_label_pairs", multiple=True,
+    help="Repeatable 'chain_id=Name' (e.g. 'D=PKD1'), only used to label the "
+         "chain_overview legend for multi-chain structures -- structure files "
+         "carry no protein names themselves, so this must come from the caller. "
+         "Naming any one chain in a group of identical-sequence chains labels "
+         "the whole group.",
+)
 def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_arg,
-           output_dir, no_strict_wt, min_identity):
+           output_dir, no_strict_wt, min_identity, chain_label_pairs):
     """Run inside the SLURM job / compute node. Never calls the network."""
+    chain_labels = dict(pair.split("=", 1) for pair in chain_label_pairs)
     pipeline.run_render(
         variants_csv=variants_csv,
         structure_spec=structure_spec,
@@ -73,6 +82,7 @@ def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_a
         output_dir=output_dir,
         strict_wt=not no_strict_wt,
         min_identity=min_identity,
+        chain_labels=chain_labels,
     )
 
 

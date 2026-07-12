@@ -38,6 +38,7 @@ def run_render(
     output_dir: str | Path,
     strict_wt: bool = True,
     min_identity: float = 0.4,
+    chain_labels: dict[str, str] | None = None,
 ) -> Path:
     cache_dir = Path(cache_dir)
     output_dir = Path(output_dir)
@@ -142,18 +143,18 @@ def run_render(
     for name, sub_df in groups.items():
         _render_one(name, sub_df, f"{uniprot_accession} — domain: {name}", domain=domains_by_name[name])
 
-    chain_groups = render_mod._group_chains_by_sequence(struct)
+    chain_groups = render_mod._group_chains_by_sequence(struct, chain_labels)
     if len(chain_groups) > 1:
         chain_colors = ColorMap()
         chain_overview_html = output_dir / "chain_overview.html"
         chain_overview_png = output_dir / "chain_overview.png"
         render_mod.render_chain_overview_html(
             struct, long_df, alignment, colors, chain_colors, chain_overview_html,
-            title=f"{uniprot_accession} — chains", cache_dir=cache_dir,
+            title=f"{uniprot_accession} — chains", cache_dir=cache_dir, chain_labels=chain_labels,
         )
         render_mod.render_chain_overview_png(
             struct, long_df, alignment, colors, chain_colors, chain_overview_png,
-            title=f"{uniprot_accession} — chains",
+            title=f"{uniprot_accession} — chains", chain_labels=chain_labels,
         )
         mapped, n_unmapped = render_mod._variant_positions_with_coords(long_df, struct, alignment)
         report["chain_overview"] = {

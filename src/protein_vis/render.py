@@ -411,16 +411,31 @@ def render_domain_overview_html(
     return out_path
 
 
-def _group_chains_by_sequence(struct: StructureData) -> dict[str, list[str]]:
+def _group_chains_by_sequence(
+    struct: StructureData, chain_labels: dict[str, str] | None = None
+) -> dict[str, list[str]]:
     """Chain ids grouped by identical sequence, e.g. the 3 PKD2 copies in a
     PKD1-PKD2 complex collapse to one group/color/legend entry instead of
     three -- "colored by chain" should mean by distinct molecule, not by
-    every individual chain letter."""
+    every individual chain letter.
+
+    `chain_labels` (chain id -> display name, e.g. {"D": "PKD1", "A": "PKD2"})
+    lets the legend show real protein names instead of raw chain letters --
+    structure files carry no such names themselves (an AlphaFold Server
+    mmCIF's `_entity.pdbx_description` is empty), so this always has to come
+    from the caller. Naming any one member of a group is enough to label the
+    whole group.
+    """
+    chain_labels = chain_labels or {}
     groups: dict[str, list[str]] = {}
     for chain_id in struct.all_chain_ca_coords:
         seq = struct.all_chain_sequences.get(chain_id, "")
         groups.setdefault(seq, []).append(chain_id)
-    return {", ".join(chain_ids): chain_ids for chain_ids in groups.values()}
+    labeled: dict[str, list[str]] = {}
+    for chain_ids in groups.values():
+        label = next((chain_labels[c] for c in chain_ids if c in chain_labels), ", ".join(chain_ids))
+        labeled[label] = chain_ids
+    return labeled
 
 
 def render_chain_overview_png(
@@ -432,14 +447,17 @@ def render_chain_overview_png(
     out_path: str | Path,
     *,
     title: str,
+    chain_labels: dict[str, str] | None = None,
 ) -> Path:
     """Whole-structure static render with the backbone colored by chain
     (e.g. PKD1 vs. PKD2 in a multimeric complex) instead of by domain.
     Meant to be generated only when the structure file has more than one
-    chain. Variants still overlaid and colored by class as everywhere else.
+    chain. Variants still overlaid and colored by class as everywhere else
+    -- drawn larger/bordered and the backbone faded so they stand out
+    against the (now fully opaque, whole-structure) chain coloring.
     """
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
-    groups = _group_chains_by_sequence(struct)
+    groups = _group_chains_by_sequence(struct, chain_labels)
 
     fig = plt.figure(figsize=(9, 7.5))
     ax = fig.add_subplot(111, projection="3d")
@@ -449,7 +467,7 @@ def render_chain_overview_png(
         for chain_id in chain_ids:
             coords_by_resnum = struct.all_chain_ca_coords[chain_id]
             coords = np.array([coords_by_resnum[r] for r in sorted(coords_by_resnum)])
-            ax.plot(*coords.T, "-", lw=1.4, color=color, alpha=0.85)
+            ax.plot(*coords.T, "-", lw=1.4, color=color, alpha=0.45)
 
     by_class: dict[str, list[np.ndarray]] = {}
     for item in mapped:
@@ -457,7 +475,8 @@ def render_chain_overview_png(
     for class_name, coords in by_class.items():
         arr = np.array(coords)
         ax.scatter(
-            *arr.T, color=class_colors.get(class_name), s=40, edgecolors="white", label=class_name
+            *arr.T, color=class_colors.get(class_name), s=110, edgecolors="black",
+            linewidths=1.2, label=class_name,
         )
 
     footnote = f"{len(mapped)} variant(s) plotted"
@@ -493,10 +512,13 @@ def render_chain_overview_html(
     *,
     title: str,
     cache_dir: str | Path,
+    chain_labels: dict[str, str] | None = None,
 ) -> Path:
     """Whole-structure interactive render with the backbone colored by
     chain. Meant to be generated only when the structure file has more than
-    one chain. Variants still colored by class as everywhere else."""
+    one chain. Variants still colored by class as everywhere else -- drawn
+    larger with a dark outline and the cartoon faded so they stand out
+    against the (now fully opaque, whole-structure) chain coloring."""
     js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
     if not js_path.exists():
         raise RenderError(
@@ -506,7 +528,7 @@ def render_chain_overview_html(
     js_text = js_path.read_text()
 
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
-    groups = _group_chains_by_sequence(struct)
+    groups = _group_chains_by_sequence(struct, chain_labels)
 
     view = py3Dmol.view(width=900, height=650, js="")
     view.addModel(struct.raw_text, struct.fmt)
@@ -516,7 +538,7 @@ def render_chain_overview_html(
     for label, chain_ids in groups.items():
         color = chain_colors.get(label)
         for chain_id in chain_ids:
-            view.setStyle({"chain": chain_id}, {"cartoon": {"color": color}})
+            view.setStyle({"chain": chain_id}, {"cartoon": {"color": color, "opacity": 0.55}})
         chain_legend_items.append((label, color))
 
     for item in mapped:
@@ -524,8 +546,16 @@ def render_chain_overview_html(
         view.addSphere(
             {
                 "center": {"x": x, "y": y, "z": z},
-                "radius": 1.2,
+                "radius": 1.9,
                 "color": class_colors.get(item["class_name"]),
+            }
+        )
+        view.addSphere(
+            {
+                "center": {"x": x, "y": y, "z": z},
+                "radius": 2.05,
+                "color": "black",
+                "wireframe": True,
             }
         )
     view.zoomTo()

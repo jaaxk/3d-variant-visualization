@@ -8,6 +8,8 @@ from protein_vis.colors import ColorMap, generate_categorical_palette
 from protein_vis.domains import Domain
 from protein_vis.render import (
     RenderError,
+    render_chain_overview_html,
+    render_chain_overview_png,
     render_domain_overview_html,
     render_domain_overview_png,
     render_interactive_html,
@@ -29,6 +31,17 @@ def _make_tiny_struct() -> StructureData:
         raw_text=(FIXTURES / "tiny.pdb").read_text(),
         fmt="pdb",
     )
+
+
+def _make_multichain_struct() -> StructureData:
+    struct = _make_tiny_struct()
+    struct.all_chain_ca_coords = {
+        "D": dict(struct.ca_coords),
+        "A": {r: np.array([i * 3.8, 5.0, 0.0]) for i, r in enumerate(range(201, 205))},
+        "B": {r: np.array([i * 3.8, 10.0, 0.0]) for i, r in enumerate(range(301, 305))},
+    }
+    struct.all_chain_sequences = {"D": "MKTAYIAKQR", "A": "MKTA", "B": "MKTA"}
+    return struct
 
 
 def _make_alignment() -> AlignmentResult:
@@ -199,3 +212,76 @@ def test_render_domain_overview_html_shows_both_legends(tmp_path):
     assert "THIS_IS_THE_STUB_3DMOL_JS" in html
     assert "cdn.jsdelivr" not in html
     assert "3dmol.org" not in html.lower()
+
+
+def test_render_chain_overview_groups_identical_sequences(tmp_path):
+    struct = _make_multichain_struct()
+    alignment = _make_alignment()
+    class_colors = ColorMap()
+    chain_colors = ColorMap()
+
+    out = render_chain_overview_png(
+        struct,
+        _make_variants_df(),
+        alignment,
+        class_colors,
+        chain_colors,
+        tmp_path / "chain_overview.png",
+        title="test",
+    )
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_render_chain_overview_html_uses_custom_labels(tmp_path):
+    struct = _make_multichain_struct()
+    alignment = _make_alignment()
+    class_colors = ColorMap()
+    chain_colors = ColorMap()
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "js").mkdir(parents=True)
+    (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+
+    out = render_chain_overview_html(
+        struct,
+        _make_variants_df(),
+        alignment,
+        class_colors,
+        chain_colors,
+        tmp_path / "chain_overview.html",
+        title="test",
+        cache_dir=cache_dir,
+        chain_labels={"D": "PKD1", "A": "PKD2"},
+    )
+    html = out.read_text()
+    # A and B share a sequence and should collapse to one legend entry,
+    # labeled "PKD2" (from A's label) rather than "A, B".
+    assert "PKD1" in html
+    assert "PKD2" in html
+    assert "A, B" not in html
+    assert "Chain" in html
+    assert "cdn.jsdelivr" not in html
+    assert "3dmol.org" not in html.lower()
+
+
+def test_render_chain_overview_html_without_labels_falls_back_to_chain_ids(tmp_path):
+    struct = _make_multichain_struct()
+    alignment = _make_alignment()
+    class_colors = ColorMap()
+    chain_colors = ColorMap()
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "js").mkdir(parents=True)
+    (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+
+    out = render_chain_overview_html(
+        struct,
+        _make_variants_df(),
+        alignment,
+        class_colors,
+        chain_colors,
+        tmp_path / "chain_overview.html",
+        title="test",
+        cache_dir=cache_dir,
+    )
+    html = out.read_text()
+    assert "A, B" in html
+    assert ">D<" in html

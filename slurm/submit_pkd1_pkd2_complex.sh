@@ -27,6 +27,11 @@
 # never silently dropped.
 #
 # Domains: --domains auto, consistent with submit_pkd1_alphafold.sh.
+#
+# chain_labels: "D=PKD1,A=PKD2" -- labels the chain_overview legend with the
+# real protein names. This information isn't in the structure file itself
+# (an AlphaFold Server mmCIF's _entity.pdbx_description is empty for every
+# entity), so it's supplied here from what we know built this complex.
 set -euo pipefail
 cd /home/jv2807/dms_side_projects/protein_vis
 
@@ -37,4 +42,5 @@ sbatch slurm/run_visualize.sh \
     auto \
     /scratch/jv2807/pkd1/structure_cache \
     /scratch/jv2807/pkd1/results/protein_vis_pkd1_pkd2_complex \
-    pkd1_pkd2_complex
+    pkd1_pkd2_complex \
+    "D=PKD1,A=PKD2"
