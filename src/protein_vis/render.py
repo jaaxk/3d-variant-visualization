@@ -453,8 +453,9 @@ def render_chain_overview_png(
     (e.g. PKD1 vs. PKD2 in a multimeric complex) instead of by domain.
     Meant to be generated only when the structure file has more than one
     chain. Variants still overlaid and colored by class as everywhere else
-    -- drawn larger/bordered and the backbone faded so they stand out
-    against the (now fully opaque, whole-structure) chain coloring.
+    -- drawn larger (no border/depth-shading, so class color stays a solid,
+    distinct fill) and the backbone faded so they stand out against the
+    (now fully opaque, whole-structure) chain coloring.
     """
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
     groups = _group_chains_by_sequence(struct, chain_labels)
@@ -475,8 +476,7 @@ def render_chain_overview_png(
     for class_name, coords in by_class.items():
         arr = np.array(coords)
         ax.scatter(
-            *arr.T, color=class_colors.get(class_name), s=110, edgecolors="black",
-            linewidths=0.8, label=class_name, depthshade=False,
+            *arr.T, color=class_colors.get(class_name), s=110, label=class_name, depthshade=False,
         )
 
     footnote = f"{len(mapped)} variant(s) plotted"
@@ -517,8 +517,9 @@ def render_chain_overview_html(
     """Whole-structure interactive render with the backbone colored by
     chain. Meant to be generated only when the structure file has more than
     one chain. Variants still colored by class as everywhere else -- drawn
-    larger with a dark outline and the cartoon faded so they stand out
-    against the (now fully opaque, whole-structure) chain coloring."""
+    larger (no border, so class color stays solid/distinct) and the cartoon
+    faded so they stand out against the (now fully opaque, whole-structure)
+    chain coloring."""
     js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
     if not js_path.exists():
         raise RenderError(
@@ -548,14 +549,6 @@ def render_chain_overview_html(
                 "center": {"x": x, "y": y, "z": z},
                 "radius": 1.9,
                 "color": class_colors.get(item["class_name"]),
-            }
-        )
-        view.addSphere(
-            {
-                "center": {"x": x, "y": y, "z": z},
-                "radius": 2.05,
-                "color": "black",
-                "wireframe": True,
             }
         )
     view.zoomTo()
