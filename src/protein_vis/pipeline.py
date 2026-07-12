@@ -82,6 +82,7 @@ def run_render(
         domain_colors.get(domain.name)  # pre-seed so the legend follows domain_list's N->C order
     report: dict = {
         "structure_spec": structure_spec,
+        "structure_chain": struct.chain_id,
         "uniprot_accession": uniprot_accession,
         "alignment_identity": alignment.identity,
         "alignment_coverage": alignment.coverage,
