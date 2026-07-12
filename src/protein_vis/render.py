@@ -475,8 +475,8 @@ def render_chain_overview_png(
     for class_name, coords in by_class.items():
         arr = np.array(coords)
         ax.scatter(
-            *arr.T, color=class_colors.get(class_name), s=110, edgecolors="black",
-            linewidths=1.2, label=class_name,
+            *arr.T, color=class_colors.get(class_name), s=110, edgecolors="white",
+            linewidths=1.0, label=class_name, depthshade=False,
         )
 
     footnote = f"{len(mapped)} variant(s) plotted"
@@ -554,7 +554,7 @@ def render_chain_overview_html(
             {
                 "center": {"x": x, "y": y, "z": z},
                 "radius": 2.05,
-                "color": "black",
+                "color": "white",
                 "wireframe": True,
             }
         )
