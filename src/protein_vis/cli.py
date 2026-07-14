@@ -120,10 +120,20 @@ def fetch(structures, accessions, cache_dir, bootstrap_js, force):
     "--interface-domain-name", default="Interface", show_default=True,
     help="Display name for the domain added by --interface-json.",
 )
+@click.option(
+    "--confidence", "confidence_enabled", is_flag=True,
+    help="Add a 'Confidence' color mode, bucketing each residue's CA B-factor "
+         "into AlphaFold's own pLDDT bands (Very high/Confident/Low/Very low). "
+         "Only meaningful for AlphaFold-derived structures -- a real "
+         "crystallographic/EM structure's B-factor is NOT pLDDT, so don't pass "
+         "this for e.g. a plain PDB-only run. If --provenance is also given, "
+         "any residue it labels '6A70' is shown as 'Experimentally resolved' "
+         "instead of a confidence band (it has no pLDDT to report).",
+)
 def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_arg,
            output_dir, no_strict_wt, min_identity, chain_label_pairs, class_color_pairs,
            variant_class_pairs, chain_uniprot_pairs, domains_for_pairs, provenance_path,
-           interface_json, interface_domain_name):
+           interface_json, interface_domain_name, confidence_enabled):
     """Run inside the SLURM job / compute node. Never calls the network."""
     chain_labels = dict(pair.split("=", 1) for pair in chain_label_pairs)
     class_color_overrides = dict(pair.split("=", 1) for pair in class_color_pairs)
@@ -147,6 +157,7 @@ def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_a
         provenance_path=provenance_path,
         interface_json=interface_json,
         interface_domain_name=interface_domain_name,
+        confidence_enabled=confidence_enabled,
     )
 
 

@@ -86,6 +86,14 @@ class StructureData:
     # are grouped under one color/legend entry rather than one each.
     all_chain_ca_coords: dict[str, dict[int, np.ndarray]] = field(default_factory=dict)
     all_chain_sequences: dict[str, str] = field(default_factory=dict)
+    # CA atom B-factor per chain/resnum -- for real experimental structures
+    # this is the crystallographic/EM B-factor, but AlphaFold (both the
+    # official DB and the AlphaFold Server) writes per-atom pLDDT into this
+    # same column, so it doubles as confidence data for AF-derived
+    # structures. Callers decide which interpretation applies (see
+    # pipeline.py's --confidence flag) -- this dataclass just carries
+    # whatever value is actually in the file, unconditionally.
+    all_chain_ca_bfactor: dict[str, dict[int, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -341,6 +349,7 @@ def load_structure(spec: str, cache_dir: Path) -> StructureData:
 
     all_chain_ca_coords: dict[str, dict[int, np.ndarray]] = {}
     all_chain_sequences: dict[str, str] = {}
+    all_chain_ca_bfactor: dict[str, dict[int, float]] = {}
     for candidate in model:
         standard_res = [
             res for res in candidate if res.id[0] == " " and res.resname in THREE_TO_ONE
@@ -349,6 +358,9 @@ def load_structure(spec: str, cache_dir: Path) -> StructureData:
         if coords:
             all_chain_ca_coords[candidate.id] = coords
             all_chain_sequences[candidate.id] = "".join(THREE_TO_ONE[res.resname] for res in standard_res)
+            all_chain_ca_bfactor[candidate.id] = {
+                res.id[1]: float(res["CA"].get_bfactor()) for res in standard_res if "CA" in res
+            }
 
     return StructureData(
         chain_id=chain.id,
@@ -359,6 +371,7 @@ def load_structure(spec: str, cache_dir: Path) -> StructureData:
         fmt=fmt,
         all_chain_ca_coords=all_chain_ca_coords,
         all_chain_sequences=all_chain_sequences,
+        all_chain_ca_bfactor=all_chain_ca_bfactor,
     )
 
 

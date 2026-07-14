@@ -74,9 +74,17 @@ def _build_checkbox_legend_html(items: list[tuple[str, str]], heading: str | Non
         if heading
         else ""
     )
+    uncheck_all_html = (
+        '<button type="button" class="modeUncheckAllBtn" '
+        'style="margin:4px 8px;padding:2px 8px;font-size:12px;font-family:sans-serif;cursor:pointer;">'
+        "Uncheck all</button>"
+        if items
+        else ""
+    )
     return (
         f"{heading_html}"
         f'<ul style="list-style:none;padding:0;margin:8px;font-family:sans-serif;">{rows}</ul>'
+        f"{uncheck_all_html}"
     )
 
 
@@ -530,6 +538,14 @@ def render_multi_mode_overview_html(
     document.getElementById('legendContainer').innerHTML = (modeLegends[mode] || '') + classLegendHtml;
     document.querySelectorAll('#legendContainer .modeCategoryCheckbox').forEach(function(cb) {{
       cb.addEventListener('change', function() {{ repaintMode(mode); }});
+    }});
+    document.querySelectorAll('#legendContainer .modeUncheckAllBtn').forEach(function(btn) {{
+      btn.addEventListener('click', function() {{
+        document.querySelectorAll('#legendContainer .modeCategoryCheckbox').forEach(function(cb) {{
+          cb.checked = false;
+        }});
+        repaintMode(mode);
+      }});
     }});
     repaintMode(mode);
   }}

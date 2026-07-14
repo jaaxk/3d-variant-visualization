@@ -44,7 +44,14 @@ from . import domains as domains_mod
 from . import render as render_mod
 from . import structure as structure_mod
 from . import variants as variants_mod
-from .colors import ColorMap, PROVENANCE_COLORS, TOPOLOGY_COLORS, generate_categorical_palette
+from .colors import (
+    CONFIDENCE_COLORS,
+    PROVENANCE_COLORS,
+    TOPOLOGY_COLORS,
+    ColorMap,
+    confidence_bucket,
+    generate_categorical_palette,
+)
 from .domains import Domain
 from .structure import StructureData
 
@@ -129,6 +136,7 @@ def run_render(
     provenance_path: str | Path | None = None,
     interface_json: str | Path | None = None,
     interface_domain_name: str = "Interface",
+    confidence_enabled: bool = False,
 ) -> Path:
     cache_dir = Path(cache_dir)
     output_dir = Path(output_dir)
@@ -302,24 +310,54 @@ def run_render(
     # whether the structure went through one graft stage or several chained ones. ---
     provenance_regions: list[tuple[str, list[int], str, str]] = []
     provenance_legend: list[tuple[str, str]] = []
+    provenance_by_chain: dict[str, dict[str, str]] = {}
     if provenance_path:
-        provenance = json.loads(Path(provenance_path).read_text())
-        if any(isinstance(v, list) for v in provenance.values()):
+        provenance_by_chain = json.loads(Path(provenance_path).read_text())
+        if any(isinstance(v, list) for v in provenance_by_chain.values()):
             raise ValueError(
                 f"{provenance_path}: old-format (flat list) provenance JSON -- "
                 "regenerate with graft_6a70_onto_prediction.py"
             )
         provenance_colors = ColorMap(overrides=PROVENANCE_COLORS)
         for chain_id, ca_coords in struct.all_chain_ca_coords.items():
-            chain_labels = provenance.get(chain_id, {})
+            chain_provenance = provenance_by_chain.get(chain_id, {})
             by_label: dict[str, list[int]] = {}
             for resnum in ca_coords:
-                label = chain_labels.get(str(resnum))
+                label = chain_provenance.get(str(resnum))
                 if label is not None:
                     by_label.setdefault(label, []).append(resnum)
             for label, resnums in by_label.items():
                 provenance_regions.append((chain_id, sorted(resnums), provenance_colors.get(label), label))
         provenance_legend = provenance_colors.legend_items()
+
+    # --- Confidence mode (optional, --confidence) -- per-residue pLDDT read
+    # straight from each CA atom's B-factor column (see
+    # structure.StructureData.all_chain_ca_bfactor), bucketed into
+    # AlphaFold's own 4 confidence bands. A residue the EM/AF provenance
+    # data marks as literally "6A70" (i.e. real deposited coordinates, not
+    # a prediction) gets "Experimentally resolved" instead -- it has no
+    # pLDDT to report, and showing one would misleadingly imply the real
+    # structure is itself just a confident prediction. AlphaFold2-sourced
+    # provenance labels (e.g. "AlphaFold2: Complex") are still genuine
+    # predictions, so those residues get bucketed normally. ---
+    confidence_regions: list[tuple[str, list[int], str, str]] = []
+    confidence_legend: list[tuple[str, str]] = []
+    if confidence_enabled:
+        confidence_colors = ColorMap(overrides=CONFIDENCE_COLORS)
+        for name in CONFIDENCE_COLORS:  # pre-seed so the legend has a fixed, stable order
+            confidence_colors.get(name)
+        for chain_id, bfactors in struct.all_chain_ca_bfactor.items():
+            em_resnums = {
+                int(resnum) for resnum, label in provenance_by_chain.get(chain_id, {}).items()
+                if label == "6A70"
+            }
+            by_bucket: dict[str, list[int]] = {}
+            for resnum, plddt in bfactors.items():
+                bucket = "Experimentally resolved" if resnum in em_resnums else confidence_bucket(plddt)
+                by_bucket.setdefault(bucket, []).append(resnum)
+            for bucket, resnums in by_bucket.items():
+                confidence_regions.append((chain_id, sorted(resnums), confidence_colors.get(bucket), bucket))
+        confidence_legend = confidence_colors.legend_items()
 
     modes = {
         "Chain": render_mod.ModeScheme(label="Chain", regions=chain_regions, legend_items=chain_legend),
@@ -331,6 +369,10 @@ def run_render(
     if provenance_path:
         modes["EM/AF"] = render_mod.ModeScheme(
             label="EM/AF", regions=provenance_regions, legend_items=provenance_legend
+        )
+    if confidence_enabled:
+        modes["Confidence"] = render_mod.ModeScheme(
+            label="Confidence", regions=confidence_regions, legend_items=confidence_legend
         )
 
     overview_html = output_dir / "overview.html"

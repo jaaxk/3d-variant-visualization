@@ -35,7 +35,36 @@ PROVENANCE_COLORS: dict[str, str] = {
     "AlphaFold2: PKD1 monomer": "#EF6C00",
 }
 
+# AlphaFold's own official per-residue pLDDT confidence palette (same 4
+# bands/colors AlphaFold DB and the AlphaFold Server use in their own
+# confidence-colored structure views) -- reusing this rather than inventing
+# a new scheme keeps the coloring immediately recognizable to anyone who's
+# used AlphaFold's own tools. "Experimentally resolved" is not a confidence
+# band at all (a real deposited structure -- e.g. 6A70 -- has no pLDDT), so
+# it gets its own fixed color rather than being folded into the bands;
+# reuses PROVENANCE_COLORS' "6A70" purple for visual consistency with the
+# EM/AF mode's own "this part is real data" color.
+CONFIDENCE_COLORS: dict[str, str] = {
+    "Experimentally resolved": PROVENANCE_COLORS["6A70"],
+    "Very high (pLDDT > 90)": "#0053D6",
+    "Confident (70-90)": "#65CBF3",
+    "Low (50-70)": "#FFDB13",
+    "Very low (< 50)": "#FF7D45",
+}
+
 DEFAULT_COLOR = "#9E9E9E"
+
+
+def confidence_bucket(plddt: float) -> str:
+    """Bucket a per-residue pLDDT value into AlphaFold's own 4 confidence
+    bands (see CONFIDENCE_COLORS) -- same thresholds AlphaFold DB/Server use."""
+    if plddt > 90:
+        return "Very high (pLDDT > 90)"
+    if plddt > 70:
+        return "Confident (70-90)"
+    if plddt > 50:
+        return "Low (50-70)"
+    return "Very low (< 50)"
 
 # Assigned in order to any class name not present in CLASS_COLORS.
 FALLBACK_CYCLE: list[str] = [

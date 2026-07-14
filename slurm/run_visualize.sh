@@ -18,7 +18,8 @@
 #   sbatch slurm/run_visualize.sh <variants_csv> <structure_spec> \
 #       <uniprot_accession> <domains_config> <cache_dir> <output_dir> \
 #       [job_label] [chain_labels] [class_colors] [variant_class_overrides] \
-#       [chain_uniprot] [domains_for] [provenance_path] [interface_json]
+#       [chain_uniprot] [domains_for] [provenance_path] [interface_json] \
+#       [confidence_enabled]
 #
 # chain_labels (optional) -- comma-separated chain_id=Name pairs (e.g.
 # "D=PKD1,A=PKD2"), only used to label the Chain-mode legend for
@@ -53,6 +54,13 @@
 # JSON (see scripts/compute_pkd1_pkd2_interface.py); when given, an
 # "Interface" domain is merged into every accession's Domain mode.
 #
+# confidence_enabled (optional) -- pass the literal string "1" (or any
+# non-empty value) to add a "Confidence" color mode bucketing per-residue
+# pLDDT (read from the structure file's own CA B-factor column) into
+# AlphaFold's confidence bands. Only meaningful for AlphaFold-derived
+# structures -- omit for real crystallographic/EM-only structures, whose
+# B-factor is NOT pLDDT.
+#
 # Don't call sbatch directly with raw paths from the shell -- use one of the
 # thin per-run wrapper scripts (submit_*.sh) instead, which document exactly
 # how each historical run was invoked for reproducibility.
@@ -73,6 +81,7 @@ CHAIN_UNIPROT="${11:-}"
 DOMAINS_FOR="${12:-}"
 PROVENANCE_PATH="${13:-}"
 INTERFACE_JSON="${14:-}"
+CONFIDENCE_ENABLED="${15:-}"
 
 exec > >(tee "/home/jv2807/dms_side_projects/protein_vis/slurm/logs/${JOB_LABEL}.log") 2>&1
 
@@ -144,13 +153,19 @@ if [ -n "${INTERFACE_JSON}" ]; then
     INTERFACE_JSON_FLAG=" --interface-json ${INTERFACE_JSON}"
 fi
 
+CONFIDENCE_FLAG=""
+if [ -n "${CONFIDENCE_ENABLED}" ]; then
+    echo "[${JOB_LABEL}] confidence_enabled=${CONFIDENCE_ENABLED}"
+    CONFIDENCE_FLAG=" --confidence"
+fi
+
 $SIF_CPU "source /ext3/env.sh && cd /home/jv2807/dms_side_projects/protein_vis && python -m protein_vis.cli render \
     --variants ${VARIANTS_CSV} \
     --structure ${STRUCTURE_SPEC} \
     --uniprot ${UNIPROT_ACCESSION} \
     --cache-dir ${CACHE_DIR} \
     --domains ${DOMAINS_CONFIG} \
-    --output-dir ${OUTPUT_DIR}${CHAIN_LABEL_FLAGS}${CLASS_COLOR_FLAGS}${VARIANT_CLASS_FLAGS}${CHAIN_UNIPROT_FLAGS}${DOMAINS_FOR_FLAGS}${PROVENANCE_FLAG}${INTERFACE_JSON_FLAG}" \
+    --output-dir ${OUTPUT_DIR}${CHAIN_LABEL_FLAGS}${CLASS_COLOR_FLAGS}${VARIANT_CLASS_FLAGS}${CHAIN_UNIPROT_FLAGS}${DOMAINS_FOR_FLAGS}${PROVENANCE_FLAG}${INTERFACE_JSON_FLAG}${CONFIDENCE_FLAG}" \
     || { echo "[${JOB_LABEL}] Render FAILED"; exit 1; }
 
 echo ""

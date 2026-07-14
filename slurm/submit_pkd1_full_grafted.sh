@@ -25,6 +25,13 @@
 #
 # chain_labels / class_colors / variant_class_overrides: identical scheme to
 # submit_pkd1_pkd2_grafted.sh, for visual consistency across runs.
+#
+# confidence_enabled ("1"): adds a "Confidence" mode -- per-residue pLDDT
+# from each CA atom's B-factor (both grafted-in AlphaFold Server predictions
+# write pLDDT there), bucketed into AlphaFold's own confidence bands.
+# Residues the provenance JSON labels "6A70" show as "Experimentally
+# resolved" instead of a confidence band (see colors.py CONFIDENCE_COLORS,
+# pipeline.py's confidence block).
 set -euo pipefail
 cd /home/jv2807/dms_side_projects/protein_vis
 
@@ -42,4 +49,5 @@ sbatch slurm/run_visualize.sh \
     "B=Q13563" \
     "Q13563=auto" \
     /scratch/jv2807/pkd1/af2_predictions/pkd1_full_pkd2_grafted/pkd1_full_pkd2_grafted.provenance.json \
-    configs/domains/pkd1_pkd2_interface.json
+    configs/domains/pkd1_pkd2_interface.json \
+    1

@@ -7,6 +7,8 @@ from protein_vis.structure import (
     AlignmentError,
     StructureData,
     align_to_reference,
+    fetch_structure,
+    load_structure,
     parse_source_spec,
 )
 
@@ -65,3 +67,24 @@ def test_align_to_reference_raises_below_min_identity():
     unrelated_reference = "QWERTYQWERTYQWERTYQWERTY"
     with pytest.raises(AlignmentError):
         align_to_reference(struct, unrelated_reference, min_identity=0.9)
+
+
+def test_load_structure_extracts_ca_bfactor(tmp_path):
+    """CA atom B-factor is a real crystallographic/EM B-factor for
+    experimental structures, but AlphaFold (DB and Server) writes per-atom
+    pLDDT into that same column -- pipeline.py's --confidence mode reads it
+    from here, so load_structure must always carry it through regardless of
+    which interpretation actually applies for a given file."""
+    pdb_text = (
+        "ATOM      1  CA  MET A   1       0.000   0.000   0.000  1.00 95.00           C\n"
+        "ATOM      2  CA  LYS A   2       3.800   0.000   0.000  1.00 42.50           C\n"
+        "TER\nEND\n"
+    )
+    pdb_path = tmp_path / "bfactor.pdb"
+    pdb_path.write_text(pdb_text)
+    cache_dir = tmp_path / "cache"
+    spec = f"file:{pdb_path}"
+    fetch_structure(spec, cache_dir)
+    struct = load_structure(spec, cache_dir)
+    assert struct.all_chain_ca_bfactor["A"][1] == pytest.approx(95.00)
+    assert struct.all_chain_ca_bfactor["A"][2] == pytest.approx(42.50)

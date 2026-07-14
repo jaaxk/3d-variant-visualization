@@ -1,7 +1,9 @@
 from protein_vis.colors import (
     CLASS_COLORS,
+    CONFIDENCE_COLORS,
     FALLBACK_CYCLE,
     ColorMap,
+    confidence_bucket,
     generate_categorical_palette,
 )
 
@@ -51,3 +53,23 @@ def test_colormap_uses_custom_fallback_cycle():
     cm = ColorMap(fallback_cycle=palette)
     assigned = [cm.get(f"domain_{i}") for i in range(5)]
     assert assigned == palette
+
+
+def test_confidence_bucket_thresholds():
+    assert confidence_bucket(95) == "Very high (pLDDT > 90)"
+    assert confidence_bucket(90) == "Confident (70-90)"  # boundary: not strictly > 90
+    assert confidence_bucket(80) == "Confident (70-90)"
+    assert confidence_bucket(70) == "Low (50-70)"
+    assert confidence_bucket(60) == "Low (50-70)"
+    assert confidence_bucket(50) == "Very low (< 50)"
+    assert confidence_bucket(10) == "Very low (< 50)"
+
+
+def test_confidence_colors_has_experimentally_resolved_and_four_bands():
+    assert set(CONFIDENCE_COLORS) == {
+        "Experimentally resolved",
+        "Very high (pLDDT > 90)",
+        "Confident (70-90)",
+        "Low (50-70)",
+        "Very low (< 50)",
+    }

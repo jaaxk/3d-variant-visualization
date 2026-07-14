@@ -235,3 +235,75 @@ def test_pipeline_smoke_multichain_domains_topology_provenance_interface(tmp_pat
 
     report = json.loads((output_dir / "run_report.json").read_text())
     assert set(report["overview"]["modes"]) == {"Chain", "Domain", "Topology", "EM/AF"}
+
+
+def test_pipeline_smoke_confidence_mode(tmp_path):
+    cache_dir = tmp_path / "cache"
+    structure_spec = f"file:{FIXTURES / 'tiny_bfactor.pdb'}"
+    structure_mod.fetch_structure(structure_spec, cache_dir)
+
+    uniprot_dir = cache_dir / "uniprot"
+    uniprot_dir.mkdir(parents=True)
+    (uniprot_dir / "TEST0001.fasta").write_text((FIXTURES / "tiny_uniprot.fasta").read_text())
+    (uniprot_dir / "TEST0001.json").write_text((FIXTURES / "tiny_uniprot_features.json").read_text())
+    structure_mod._write_manifest_entry(
+        cache_dir, "uniprot:TEST0001",
+        {"url": None, "local_path": "uniprot/TEST0001.json", "fetched_at": "test", "sha256": "test"},
+    )
+    js_dir = cache_dir / "js"
+    js_dir.mkdir(parents=True)
+    (js_dir / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+
+    # Resnum 101 (B-factor 95.00 in the fixture) is marked "6A70" -- real
+    # deposited coordinates, not a prediction -- so it must show as
+    # "Experimentally resolved" rather than bucketed as "Very high" from its
+    # (leftover, meaningless) B-factor value.
+    provenance_path = tmp_path / "provenance.json"
+    provenance_path.write_text(json.dumps({"A": {"101": "6A70"}}))
+
+    output_dir = tmp_path / "output_confidence"
+    pipeline.run_render(
+        variants_csv=FIXTURES / "tiny_variants.csv",
+        structure_spec=structure_spec,
+        uniprot_accession="TEST0001",
+        cache_dir=cache_dir,
+        domains_arg="auto",
+        output_dir=output_dir,
+        strict_wt=True,
+        min_identity=0.5,
+        provenance_path=provenance_path,
+        confidence_enabled=True,
+    )
+
+    overview_html = (output_dir / "overview.html").read_text()
+    assert '<option value="Confidence"' in overview_html
+    assert "Experimentally resolved" in overview_html
+    # legend text is html-escaped, so "<"/">" become entities
+    assert "Very high (pLDDT &gt; 90)" in overview_html
+    assert "Confident (70-90)" in overview_html
+    assert "Low (50-70)" in overview_html
+    assert "Very low (&lt; 50)" in overview_html
+    # "Uncheck all" button present on the mode legend (not the class legend).
+    assert "Uncheck all" in overview_html
+    assert "modeUncheckAllBtn" in overview_html
+
+    report = json.loads((output_dir / "run_report.json").read_text())
+    assert "Confidence" in report["overview"]["modes"]
+
+
+def test_pipeline_smoke_no_confidence_mode_without_flag(tmp_path):
+    cache_dir, structure_spec = _setup_cache(tmp_path)
+    output_dir = tmp_path / "output_no_confidence"
+
+    pipeline.run_render(
+        variants_csv=FIXTURES / "tiny_variants.csv",
+        structure_spec=structure_spec,
+        uniprot_accession="TEST0001",
+        cache_dir=cache_dir,
+        domains_arg="auto",
+        output_dir=output_dir,
+        strict_wt=True,
+        min_identity=0.5,
+    )
+    overview_html = (output_dir / "overview.html").read_text()
+    assert '<option value="Confidence"' not in overview_html

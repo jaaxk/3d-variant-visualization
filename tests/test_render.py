@@ -9,6 +9,7 @@ from protein_vis.domains import Domain
 from protein_vis.render import (
     ModeScheme,
     RenderError,
+    _build_checkbox_legend_html,
     render_interactive_html,
     render_multi_mode_overview_html,
     render_static_png,
@@ -345,3 +346,18 @@ def test_render_multi_mode_overview_shows_variant_labels_when_requested(tmp_path
     assert "addLabel" in labeled_html
     assert "M5V" in labeled_html
     assert "A8G" in labeled_html
+
+
+def test_build_checkbox_legend_html_has_checkboxes_and_uncheck_all():
+    html = _build_checkbox_legend_html([("domain_one", "#111111"), ("domain_two", "#222222")], heading="Domain")
+    assert html.count('class="modeCategoryCheckbox"') == 2
+    assert 'data-name="domain_one"' in html
+    assert 'data-name="domain_two"' in html
+    assert "checked" in html
+    assert 'class="modeUncheckAllBtn"' in html
+    assert "Uncheck all" in html
+
+
+def test_build_checkbox_legend_html_no_button_when_empty():
+    html = _build_checkbox_legend_html([], heading="Domain")
+    assert "modeUncheckAllBtn" not in html
