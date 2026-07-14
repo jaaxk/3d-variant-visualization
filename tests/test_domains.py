@@ -6,6 +6,7 @@ from protein_vis.domains import (
     Domain,
     assign_domains,
     auto_domains_from_uniprot,
+    auto_topology_from_uniprot,
     group_variants_by_domain,
     load_domain_config,
 )
@@ -57,3 +58,27 @@ def test_auto_domains_from_uniprot_uses_wanted_feature_types():
     # "Chain" feature type is not in the wanted set and must be excluded.
     assert not any("Ignored" in n for n in names)
     assert len(domains) == 2
+
+
+def test_discontiguous_domain_via_positions():
+    domain = Domain(name="interface", positions=frozenset({3, 7, 9}))
+    assert domain.contains(7)
+    assert not domain.contains(5)
+    assert assign_domains(7, [domain]) == ["interface"]
+    assert assign_domains(5, [domain]) == []
+
+
+def test_domain_requires_range_or_positions():
+    import pytest
+
+    with pytest.raises(ValueError):
+        Domain(name="broken")
+
+
+def test_auto_topology_from_uniprot_buckets_by_feature_type():
+    domains = auto_topology_from_uniprot(FIXTURES / "tiny_uniprot_topology.json")
+    names = {d.name for d in domains}
+    assert names == {"Cytoplasmic", "Transmembrane", "Extracellular"}
+    assert not any("Ignored" in n for n in names)
+    tm = next(d for d in domains if d.name == "Transmembrane")
+    assert (tm.start, tm.end) == (6, 10)

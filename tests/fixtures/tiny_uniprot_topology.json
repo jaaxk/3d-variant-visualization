@@ -1,0 +1,24 @@
+{
+  "features": [
+    {
+      "type": "Topological domain",
+      "description": "Cytoplasmic",
+      "location": {"start": {"value": 1}, "end": {"value": 5}}
+    },
+    {
+      "type": "Transmembrane",
+      "description": "Helical",
+      "location": {"start": {"value": 6}, "end": {"value": 10}}
+    },
+    {
+      "type": "Topological domain",
+      "description": "Extracellular",
+      "location": {"start": {"value": 11}, "end": {"value": 15}}
+    },
+    {
+      "type": "Chain",
+      "description": "Ignored feature type",
+      "location": {"start": {"value": 1}, "end": {"value": 15}}
+    }
+  ]
+}

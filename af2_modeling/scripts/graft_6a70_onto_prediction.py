@@ -41,7 +41,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from Bio import Align
@@ -180,35 +182,23 @@ def assign_chains(predicted_chains: list[ChainInfo], template_chains: list[Chain
     return assignment
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--predicted", required=True, help="AlphaFold2 prediction (PDB/mmCIF)")
-    ap.add_argument("--template", required=True, help="6A70 structure (PDB/mmCIF)")
-    ap.add_argument("--output", required=True)
-    ap.add_argument("--min-identity", type=float, default=0.9,
-                     help="Minimum identity to accept a chain match (default 0.9 -- these "
-                          "are the same real protein, near-identical sequence expected).")
-    args = ap.parse_args()
+def compute_chain_matches(predicted_chains, template_chains, min_identity: float):
+    """One-to-one chain assignment (see assign_chains) plus, for every
+    assigned chain, the per-residue match map -- predicted resnum -> (matched
+    template chain id, template resnum) -- for every residue whose sequence
+    aligned to a residue *actually present with coordinates* in the template
+    (chain_info() only ever extracts residues with modeled coordinates, so
+    "sequence-matched" and "covered by the template's resolved density" are
+    the same thing here).
 
-    predicted_model = parse_structure(args.predicted)
-    template_model = parse_structure(args.template)
-
-    predicted_chains = [chain_info(c) for c in predicted_model if len(chain_info(c).sequence) > 0]
-    template_chains = [chain_info(c) for c in template_model if len(chain_info(c).sequence) > 0]
-
-    print(f"predicted structure: {len(predicted_chains)} chain(s) "
-          f"({[c.chain.id for c in predicted_chains]})")
-    print(f"template structure:  {len(template_chains)} chain(s) "
-          f"({[c.chain.id for c in template_chains]})")
-
-    # 1-2. One-to-one assignment of predicted chains to template chains (handles
-    # repeated/identical chains like the 3 PKD2 copies correctly -- see assign_chains),
-    # then collect matched CA atom pairs combined across ALL chains for one shared
-    # global superposition.
-    fixed_atoms, moving_atoms = [], []
-    per_chain_matches: dict[str, dict[int, tuple]] = {}  # predicted chain id -> {predicted_resnum: (tmpl_chain_id, tmpl_resnum)}
-
-    assignment = assign_chains(predicted_chains, template_chains, args.min_identity)
+    Shared by both the graft path (which additionally pulls CA atoms from
+    this map for superposition) and the read-only provenance path (which
+    only needs the map itself, to know which residues are EM vs. AF-only --
+    see --provenance-only below). Kept separate from the CA-atom/superposition
+    step so provenance can be computed without redoing any of that.
+    """
+    assignment = assign_chains(predicted_chains, template_chains, min_identity)
+    per_chain_matches: dict[str, dict[int, tuple]] = {}
     for pred_info in predicted_chains:
         assigned = assignment.get(pred_info.chain.id)
         if assigned is None:
@@ -226,18 +216,87 @@ def main() -> None:
             pred_resnum = pred_info.resnums[pred_idx]
             tmpl_resnum = match.resnums[tmpl_idx]
             resnum_map[pred_resnum] = (match.chain.id, tmpl_resnum)
-            pred_res = pred_info.chain[pred_resnum]
-            tmpl_res = match.chain[tmpl_resnum]
+        per_chain_matches[pred_info.chain.id] = resnum_map
+    return assignment, per_chain_matches
+
+
+def write_provenance(per_chain_matches: dict, out_path: str) -> None:
+    """{predicted_chain_id: [resnum, ...]} of every residue covered by the
+    template ("EM"); any resnum absent from its chain's list is implicitly
+    AF-predicted -- consumers never need a second "AF" list."""
+    provenance = {
+        chain_id: sorted(resnum_map)
+        for chain_id, resnum_map in per_chain_matches.items()
+    }
+    Path(out_path).write_text(json.dumps(provenance, indent=2, sort_keys=True))
+    n_em = sum(len(v) for v in provenance.values())
+    print(f"wrote provenance ({n_em} EM residue(s) across {len(provenance)} chain(s)) -> {out_path}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--predicted", required=True,
+                     help="AlphaFold2 prediction (PDB/mmCIF) -- or, with --provenance-only, "
+                          "an already-grafted structure to compute provenance for.")
+    ap.add_argument("--template", required=True, help="6A70 structure (PDB/mmCIF)")
+    ap.add_argument("--output", required=False, help="Grafted structure output path.")
+    ap.add_argument("--min-identity", type=float, default=0.9,
+                     help="Minimum identity to accept a chain match (default 0.9 -- these "
+                          "are the same real protein, near-identical sequence expected).")
+    ap.add_argument("--provenance-output",
+                     help="Also write a JSON sidecar (chain_id -> [EM resnum, ...]) recording "
+                          "which residues came directly from --template.")
+    ap.add_argument("--provenance-only", action="store_true",
+                     help="Skip superposition/splice entirely. Just compute which residues in "
+                          "--predicted have a sequence-matched (= template-resolved-density-"
+                          "covered) counterpart in --template and write --provenance-output. "
+                          "Use this against an ALREADY-GRAFTED structure to get EM-vs-AF "
+                          "provenance without re-running the graft -- the same chain-matching "
+                          "the graft itself uses already defines 'covered by 6A70' exactly, so "
+                          "nothing needs to be re-modeled, only recomputed against the files "
+                          "already on disk.")
+    args = ap.parse_args()
+
+    predicted_model = parse_structure(args.predicted)
+    template_model = parse_structure(args.template)
+
+    predicted_chains = [chain_info(c) for c in predicted_model if len(chain_info(c).sequence) > 0]
+    template_chains = [chain_info(c) for c in template_model if len(chain_info(c).sequence) > 0]
+
+    print(f"predicted structure: {len(predicted_chains)} chain(s) "
+          f"({[c.chain.id for c in predicted_chains]})")
+    print(f"template structure:  {len(template_chains)} chain(s) "
+          f"({[c.chain.id for c in template_chains]})")
+
+    assignment, per_chain_matches = compute_chain_matches(
+        predicted_chains, template_chains, args.min_identity
+    )
+
+    if args.provenance_only:
+        if not args.provenance_output:
+            raise SystemExit("--provenance-only requires --provenance-output")
+        write_provenance(per_chain_matches, args.provenance_output)
+        return
+
+    if not args.output:
+        raise SystemExit("--output is required unless --provenance-only")
+
+    # 3. One global rigid-body superposition from all matched CA atoms (pulled from
+    # per_chain_matches, combined across ALL chains), applied to every atom in the
+    # predicted structure.
+    fixed_atoms, moving_atoms = [], []
+    for pred_info in predicted_chains:
+        resnum_map = per_chain_matches[pred_info.chain.id]
+        for pred_resnum, (tmpl_chain_id, tmpl_resnum) in resnum_map.items():
+            tmpl_chain = next(c for c in template_model if c.id == tmpl_chain_id)
+            pred_res, tmpl_res = pred_info.chain[pred_resnum], tmpl_chain[tmpl_resnum]
             if "CA" in pred_res and "CA" in tmpl_res:
                 moving_atoms.append(pred_res["CA"])
                 fixed_atoms.append(tmpl_res["CA"])
-        per_chain_matches[pred_info.chain.id] = resnum_map
 
     if not fixed_atoms:
         raise SystemExit("no chain matched the template with sufficient identity -- nothing to graft")
 
-    # 3. One global rigid-body superposition from all matched CA atoms, applied to every
-    # atom in the predicted structure.
     sup = Superimposer()
     sup.set_atoms(fixed_atoms, moving_atoms)
     print(f"superposition RMSD over {len(fixed_atoms)} shared CA atom(s): {sup.rms:.3f} A")
@@ -267,6 +326,9 @@ def main() -> None:
     io.set_structure(predicted_model)
     io.save(args.output)
     print(f"wrote {args.output}")
+
+    if args.provenance_output:
+        write_provenance(per_chain_matches, args.provenance_output)
 
 
 if __name__ == "__main__":

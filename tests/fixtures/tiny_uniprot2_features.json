@@ -1,0 +1,9 @@
+{
+  "features": [
+    {
+      "type": "Transmembrane",
+      "description": "Helical",
+      "location": {"start": {"value": 2}, "end": {"value": 3}}
+    }
+  ]
+}

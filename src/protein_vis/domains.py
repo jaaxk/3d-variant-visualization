@@ -21,22 +21,44 @@ from .structure import AlignmentResult
 
 @dataclass(frozen=True)
 class Domain:
+    """A named residue set in reference-sequence numbering.
+
+    Either a contiguous `start..end` range (the common case) or an explicit
+    `positions` set (for genuinely discontiguous categories, e.g. a
+    structural contact interface -- see scripts/compute_pkd1_pkd2_interface.py)
+    -- exactly one of the two must be given.
+    """
+
     name: str
-    start: int
-    end: int
+    start: int | None = None
+    end: int | None = None
     source: str | None = None
+    positions: frozenset[int] | None = None
+
+    def __post_init__(self) -> None:
+        if self.positions is None and (self.start is None or self.end is None):
+            raise ValueError(
+                f"Domain {self.name!r} needs either start/end or positions"
+            )
+
+    def contains(self, pos: int) -> bool:
+        if self.positions is not None:
+            return pos in self.positions
+        return self.start <= pos <= self.end
 
 
 def load_domain_config(yaml_path: str | Path) -> list[Domain]:
     data = yaml.safe_load(Path(yaml_path).read_text())
     domains = []
     for entry in data.get("domains", []):
+        positions = entry.get("positions")
         domains.append(
             Domain(
                 name=entry["name"],
-                start=int(entry["start"]),
-                end=int(entry["end"]),
+                start=int(entry["start"]) if "start" in entry else None,
+                end=int(entry["end"]) if "end" in entry else None,
                 source=entry.get("source"),
+                positions=frozenset(int(p) for p in positions) if positions is not None else None,
             )
         )
     return domains
@@ -73,16 +95,57 @@ def auto_domains_from_uniprot(uniprot_json_path: str | Path) -> list[Domain]:
     return domains
 
 
+def auto_topology_from_uniprot(uniprot_json_path: str | Path) -> list[Domain]:
+    """Membrane-topology categories derived from UniProt's own
+    "Transmembrane"/"Topological domain"/"Intramembrane" feature types --
+    generalizes to any membrane protein with these UniProt annotations, no
+    curated config needed. "Transmembrane" and "Intramembrane" features
+    always bucket to "Transmembrane" regardless of their own description
+    (helix name, "Pore-forming", etc.); "Topological domain" features bucket
+    by their own description text ("Cytoplasmic"/"Extracellular"/"Lumenal"
+    etc., taken verbatim from UniProt rather than guessed). Multiple ranges
+    commonly share the same bucket name (e.g. every cytoplasmic loop) --
+    that's fine for coloring (same category, same color) but callers that
+    build a legend must dedupe by name first.
+    """
+    data = json.loads(Path(uniprot_json_path).read_text())
+    domains: list[Domain] = []
+
+    for feature in data.get("features", []):
+        ftype = feature.get("type")
+        location = feature.get("location", {})
+        start = location.get("start", {}).get("value")
+        end = location.get("end", {}).get("value")
+        if start is None or end is None:
+            continue
+
+        if ftype in ("Transmembrane", "Intramembrane"):
+            bucket = "Transmembrane"
+        elif ftype == "Topological domain":
+            bucket = (feature.get("description") or "").split(";")[0].strip() or "Extracellular"
+        else:
+            continue
+
+        domains.append(
+            Domain(name=bucket, start=int(start), end=int(end), source="UniProt (auto topology)")
+        )
+
+    return domains
+
+
+def _domain_to_yaml_entry(d: Domain) -> dict:
+    if d.positions is not None:
+        return {"name": d.name, "positions": sorted(d.positions), "source": d.source}
+    return {"name": d.name, "start": d.start, "end": d.end, "source": d.source}
+
+
 def write_domain_config(
     domains: list[Domain], out_path: str | Path, *, accession: str, note: str
 ) -> None:
     payload = {
         "uniprot_accession": accession,
         "note": note,
-        "domains": [
-            {"name": d.name, "start": d.start, "end": d.end, "source": d.source}
-            for d in domains
-        ],
+        "domains": [_domain_to_yaml_entry(d) for d in domains],
     }
     Path(out_path).write_text(yaml.safe_dump(payload, sort_keys=False))
 
@@ -96,18 +159,20 @@ def resnums_for_domain(domain: Domain, alignment: AlignmentResult) -> set[int]:
     show the same whole-structure view apart from which variants happen to
     be colored.
     """
+    positions = domain.positions if domain.positions is not None else range(domain.start, domain.end + 1)
     return {
         alignment.pos_to_resnum[pos]
-        for pos in range(domain.start, domain.end + 1)
+        for pos in positions
         if pos in alignment.pos_to_resnum
     }
 
 
 def assign_domains(pos: int, domains: list[Domain]) -> list[str]:
-    """All domains containing pos (inclusive range). Overlaps are allowed by
-    design -- e.g. a sub-domain nested within a larger domain's span -- so a
-    variant may legitimately belong to more than one domain."""
-    return [d.name for d in domains if d.start <= pos <= d.end]
+    """All domains containing pos (inclusive range, or explicit position set
+    for discontiguous domains). Overlaps are allowed by design -- e.g. a
+    sub-domain nested within a larger domain's span -- so a variant may
+    legitimately belong to more than one domain."""
+    return [d.name for d in domains if d.contains(pos)]
 
 
 def group_variants_by_domain(

@@ -16,13 +16,14 @@ the output fully self-contained/offline:
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import py3Dmol  # noqa: E402
@@ -256,190 +257,21 @@ def render_interactive_html(
 
 
 def _domain_resnums(
-    domains: list[Domain], alignment: AlignmentResult, struct: StructureData
+    domains: list[Domain], alignment: AlignmentResult, resolved_resnums: set[int]
 ) -> list[tuple[Domain, list[int]]]:
     """(domain, sorted structure resnums) for every domain with >=1 resolved
-    residue, in the given domain order -- shared by the PNG/HTML domain
-    overview renderers so a domain's resnum set is computed once."""
+    residue, in the given domain order -- shared by every caller that needs
+    a domain's resnum set (per-domain zoom renders, and pipeline.py's
+    Domain-mode region construction for both the primary chain-group
+    (`resolved_resnums=set(struct.ca_coords)`) and any secondary chain-group
+    aligned to its own UniProt accession
+    (`resolved_resnums=set(struct.all_chain_ca_coords[chain_id])`))."""
     out = []
     for domain in domains:
-        resnums = sorted(resnums_for_domain(domain, alignment) & set(struct.ca_coords))
+        resnums = sorted(resnums_for_domain(domain, alignment) & resolved_resnums)
         if resnums:
             out.append((domain, resnums))
     return out
-
-
-def render_domain_overview_png(
-    struct: StructureData,
-    variants_df: pd.DataFrame,
-    alignment: AlignmentResult,
-    class_colors: ColorMap,
-    domain_colors: ColorMap,
-    domains: list[Domain],
-    out_path: str | Path,
-    *,
-    title: str,
-) -> Path:
-    """Whole-structure static render with the backbone colored by domain --
-    every domain in `domains` drawn simultaneously in its own color (later
-    domains win on any overlapping residues), instead of the single
-    highlighted/dimmed domain used by render_static_png's per-domain mode.
-    Variants are still overlaid and colored by class exactly as every other
-    render in this pipeline; only the backbone coloring differs. No
-    zoom/crop -- this is meant to show the whole domain architecture at once.
-    """
-    mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
-    domain_segments = _domain_resnums(domains, alignment, struct)
-
-    fig = plt.figure(figsize=(9, 7.5))
-    ax = fig.add_subplot(111, projection="3d")
-
-    backbone = np.array([struct.ca_coords[r] for r in sorted(struct.resnums) if r in struct.ca_coords])
-    if len(backbone) > 0:
-        ax.plot(*backbone.T, "-", lw=0.6, color="#DDE3E8", alpha=0.5)
-
-    for domain, resnums in domain_segments:
-        coords = np.array([struct.ca_coords[r] for r in resnums])
-        ax.plot(*coords.T, "-", lw=2.0, color=domain_colors.get(domain.name), alpha=0.9)
-
-    by_class: dict[str, list[np.ndarray]] = {}
-    for item in mapped:
-        by_class.setdefault(item["class_name"], []).append(item["coord"])
-    for class_name, coords in by_class.items():
-        arr = np.array(coords)
-        ax.scatter(
-            *arr.T, color=class_colors.get(class_name), s=40, edgecolors="white", label=class_name
-        )
-
-    footnote = f"{len(mapped)} variant(s) plotted"
-    if n_unmapped:
-        footnote += f", {n_unmapped} unmapped (outside aligned/resolved structure region)"
-    ax.set_title(f"{title}\n{footnote}", fontsize=10)
-
-    class_legend = None
-    if by_class:
-        class_legend = ax.legend(
-            loc="upper left", fontsize=8, title="Variant class", title_fontsize=8
-        )
-    if domain_segments:
-        domain_handles = [
-            Line2D([0], [0], color=domain_colors.get(d.name), lw=3) for d, _ in domain_segments
-        ]
-        domain_labels = [d.name for d, _ in domain_segments]
-        ax.legend(
-            domain_handles,
-            domain_labels,
-            loc="upper right",
-            fontsize=6,
-            title="Domain",
-            title_fontsize=7,
-            ncol=2 if len(domain_handles) > 12 else 1,
-        )
-        if class_legend is not None:
-            ax.add_artist(class_legend)
-    ax.set_axis_off()
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    return out_path
-
-
-def render_domain_overview_html(
-    struct: StructureData,
-    variants_df: pd.DataFrame,
-    alignment: AlignmentResult,
-    class_colors: ColorMap,
-    domain_colors: ColorMap,
-    domains: list[Domain],
-    out_path: str | Path,
-    *,
-    title: str,
-    cache_dir: str | Path,
-    show_variant_labels: bool = False,
-) -> Path:
-    """Whole-structure interactive render with the backbone colored by
-    domain -- every domain in `domains` colored simultaneously (later
-    domains win on any overlapping residues), instead of a single
-    highlighted/zoomed domain. Variants are still colored by class exactly
-    as every other render. No zoom/crop -- shows the whole structure.
-
-    show_variant_labels -- also float each variant's name next to its
-    sphere; off by default, see render_interactive_html."""
-    js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
-    if not js_path.exists():
-        raise RenderError(
-            f"no cached 3Dmol.min.js at {js_path} -- run "
-            f"`protein-vis fetch --bootstrap-js` on the login node first"
-        )
-    js_text = js_path.read_text()
-
-    mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
-    domain_segments = _domain_resnums(domains, alignment, struct)
-
-    view = py3Dmol.view(width=900, height=650, js="")
-    view.addModel(struct.raw_text, struct.fmt)
-    view.setStyle({}, {"cartoon": {"color": "lightgray"}})
-
-    domain_legend_items: list[tuple[str, str]] = []
-    for domain, resnums in domain_segments:
-        color = domain_colors.get(domain.name)
-        view.setStyle({"chain": struct.chain_id, "resi": resnums}, {"cartoon": {"color": color}})
-        domain_legend_items.append((domain.name, color))
-
-    for item in mapped:
-        x, y, z = (float(c) for c in item["coord"])
-        view.addSphere(
-            {
-                "center": {"x": x, "y": y, "z": z},
-                "radius": 1.2,
-                "color": class_colors.get(item["class_name"]),
-            }
-        )
-        if show_variant_labels:
-            _add_variant_label(view, item)
-    view.zoomTo()
-    viewer_html = view.write_html()
-
-    domain_legend_html = _build_legend_html(domain_legend_items, heading="Domains")
-    class_legend_html = _build_legend_html(class_colors.legend_items(), heading="Variant class")
-    footnote = f"{len(mapped)} variant(s) shown"
-    if n_unmapped:
-        footnote += f", {n_unmapped} unmapped (outside aligned/resolved structure region)"
-
-    full_html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>{title}</title>
-</head>
-<body style="margin:0;padding:0;font-family:sans-serif;">
-<h2 style="margin:8px;">{title}</h2>
-<p style="margin:8px;color:#555;font-size:13px;">
-  Structure: {struct.chain_id} | alignment identity {alignment.identity:.1%},
-  coverage {alignment.coverage:.1%} | {footnote}
-</p>
-<div style="display:flex;flex-wrap:wrap;gap:24px;">
-{domain_legend_html}
-{class_legend_html}
-</div>
-<script>{js_text}</script>
-<script>var $3Dmolpromise = Promise.resolve();</script>
-{viewer_html}
-</body>
-</html>"""
-
-    if "cdn.jsdelivr" in full_html or "3dmol.org" in full_html.lower():
-        raise RenderError(
-            "generated HTML unexpectedly references an external CDN -- "
-            "self-contained/offline guarantee violated"
-        )
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(full_html)
-    return out_path
 
 
 def _group_chains_by_sequence(
@@ -469,92 +301,57 @@ def _group_chains_by_sequence(
     return labeled
 
 
-def render_chain_overview_png(
+@dataclass
+class ModeScheme:
+    """One backbone-coloring option in the multi-mode overview's toggle --
+    e.g. "Chain", "Domain". `regions` is applied on top of a shared plain
+    gray/0.55-opacity base style (so anything not covered by any region
+    stays that same gray, at the same opacity -- there's no separate
+    "uncategorized" dimming). `legend_items` must already be deduped by name
+    (a category like "Cytoplasmic" or a domain that spans several
+    disjoint/discontiguous ranges legitimately produces multiple `regions`
+    entries sharing one name)."""
+
+    label: str
+    regions: list[tuple[str, list[int], str]]  # (chain_id, resi_list, color_hex)
+    legend_items: list[tuple[str, str]]  # (name, color), deduped, in display order
+
+
+def render_multi_mode_overview_html(
     struct: StructureData,
     variants_df: pd.DataFrame,
     alignment: AlignmentResult,
     class_colors: ColorMap,
-    chain_colors: ColorMap,
-    out_path: str | Path,
-    *,
-    title: str,
-    chain_labels: dict[str, str] | None = None,
-) -> Path:
-    """Whole-structure static render with the backbone colored by chain
-    (e.g. PKD1 vs. PKD2 in a multimeric complex) instead of by domain.
-    Meant to be generated only when the structure file has more than one
-    chain. Variants still overlaid and colored by class as everywhere else
-    -- drawn larger (no border/depth-shading, so class color stays a solid,
-    distinct fill) and the backbone faded so they stand out against the
-    (now fully opaque, whole-structure) chain coloring.
-    """
-    mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
-    groups = _group_chains_by_sequence(struct, chain_labels)
-
-    fig = plt.figure(figsize=(9, 7.5))
-    ax = fig.add_subplot(111, projection="3d")
-
-    for label, chain_ids in groups.items():
-        color = chain_colors.get(label)
-        for chain_id in chain_ids:
-            coords_by_resnum = struct.all_chain_ca_coords[chain_id]
-            coords = np.array([coords_by_resnum[r] for r in sorted(coords_by_resnum)])
-            ax.plot(*coords.T, "-", lw=1.4, color=color, alpha=0.45)
-
-    by_class: dict[str, list[np.ndarray]] = {}
-    for item in mapped:
-        by_class.setdefault(item["class_name"], []).append(item["coord"])
-    for class_name, coords in by_class.items():
-        arr = np.array(coords)
-        ax.scatter(
-            *arr.T, color=class_colors.get(class_name), s=110, label=class_name, depthshade=False,
-        )
-
-    footnote = f"{len(mapped)} variant(s) plotted"
-    if n_unmapped:
-        footnote += f", {n_unmapped} unmapped (outside aligned/resolved structure region)"
-    ax.set_title(f"{title}\n{footnote}", fontsize=10)
-
-    class_legend = None
-    if by_class:
-        class_legend = ax.legend(
-            loc="upper left", fontsize=8, title="Variant class", title_fontsize=8
-        )
-    chain_handles = [Line2D([0], [0], color=chain_colors.get(label), lw=3) for label in groups]
-    ax.legend(chain_handles, list(groups), loc="upper right", fontsize=8, title="Chain", title_fontsize=8)
-    if class_legend is not None:
-        ax.add_artist(class_legend)
-    ax.set_axis_off()
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    return out_path
-
-
-def render_chain_overview_html(
-    struct: StructureData,
-    variants_df: pd.DataFrame,
-    alignment: AlignmentResult,
-    class_colors: ColorMap,
-    chain_colors: ColorMap,
+    modes: dict[str, ModeScheme],
     out_path: str | Path,
     *,
     title: str,
     cache_dir: str | Path,
-    chain_labels: dict[str, str] | None = None,
+    default_mode: str = "Chain",
     show_variant_labels: bool = False,
 ) -> Path:
-    """Whole-structure interactive render with the backbone colored by
-    chain. Meant to be generated only when the structure file has more than
-    one chain. Variants still colored by class as everywhere else -- drawn
-    larger (no border, so class color stays solid/distinct) and the cartoon
-    faded so they stand out against the (now fully opaque, whole-structure)
-    chain coloring.
+    """Whole-structure interactive render with a <select> dropdown that
+    switches the backbone coloring between several precomputed schemes
+    (Chain / EM-AF / Topology / Domain -- see pipeline.run_render) without
+    reloading the page. Replaces the old single-purpose
+    render_domain_overview_html/render_chain_overview_html: those two modes
+    are now just two entries in `modes`, and any protein/complex can add
+    more (a new mode is just one more ModeScheme, no new render function).
 
-    show_variant_labels -- also float each variant's name next to its
-    sphere; off by default, see render_interactive_html."""
+    Variant spheres/labels are added once, independent of the mode switch --
+    the toggle only ever repaints the cartoon backbone, never variant
+    coloring (unchanged from every other render in this pipeline: colored by
+    class via `class_colors`).
+
+    Unlike every other renderer here, this one does NOT go through
+    py3Dmol.view()/write_html() -- switching styles interactively needs a
+    real, named JS handle on the live 3Dmol.js viewer object, which
+    py3Dmol's generated glue doesn't expose. Instead this hand-writes a
+    <script> block that calls the same underlying $3Dmol.createViewer/
+    addModel/render API directly (3Dmol.min.js is inlined exactly as
+    everywhere else in this module, so this stays just as self-contained/
+    offline as every other render).
+    """
     js_path = Path(cache_dir) / "js" / "3Dmol.min.js"
     if not js_path.exists():
         raise RenderError(
@@ -563,39 +360,59 @@ def render_chain_overview_html(
         )
     js_text = js_path.read_text()
 
+    if default_mode not in modes:
+        raise RenderError(f"default_mode {default_mode!r} not among modes {list(modes)}")
+
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
-    groups = _group_chains_by_sequence(struct, chain_labels)
 
-    view = py3Dmol.view(width=900, height=650, js="")
-    view.addModel(struct.raw_text, struct.fmt)
-    view.setStyle({}, {"cartoon": {"color": "lightgray"}})
+    mode_regions_json = {
+        mode: [{"chain": chain_id, "resi": resi, "color": color} for chain_id, resi, color in scheme.regions]
+        for mode, scheme in modes.items()
+    }
+    mode_legends_json = {
+        mode: _build_legend_html(scheme.legend_items, heading=scheme.label) for mode, scheme in modes.items()
+    }
 
-    chain_legend_items: list[tuple[str, str]] = []
-    for label, chain_ids in groups.items():
-        color = chain_colors.get(label)
-        for chain_id in chain_ids:
-            view.setStyle({"chain": chain_id}, {"cartoon": {"color": color, "opacity": 0.55}})
-        chain_legend_items.append((label, color))
-
-    for item in mapped:
-        x, y, z = (float(c) for c in item["coord"])
-        view.addSphere(
-            {
-                "center": {"x": x, "y": y, "z": z},
-                "radius": 1.9,
-                "color": class_colors.get(item["class_name"]),
-            }
-        )
-        if show_variant_labels:
-            _add_variant_label(view, item)
-    view.zoomTo()
-    viewer_html = view.write_html()
-
-    chain_legend_html = _build_legend_html(chain_legend_items, heading="Chain")
+    # Populates class_colors via .get() for every variant actually shown --
+    # must run before class_colors.legend_items() below, which only reports
+    # classes seen so far.
+    variant_spheres = [
+        {
+            "x": float(item["coord"][0]),
+            "y": float(item["coord"][1]),
+            "z": float(item["coord"][2]),
+            "color": class_colors.get(item["class_name"]),
+            "label": item["raw"] if show_variant_labels else None,
+        }
+        for item in mapped
+    ]
     class_legend_html = _build_legend_html(class_colors.legend_items(), heading="Variant class")
+
     footnote = f"{len(mapped)} variant(s) shown"
     if n_unmapped:
         footnote += f", {n_unmapped} unmapped (outside aligned/resolved structure region)"
+
+    mode_options_html = "\n".join(
+        f'<option value="{mode}"{" selected" if mode == default_mode else ""}>{mode}</option>'
+        for mode in modes
+    )
+
+    # Only emitted at all when requested -- so, like every other renderer in
+    # this module, the literal "addLabel"/variant-name text is simply absent
+    # from a plain (non-labeled) render rather than present-but-inert.
+    add_label_js = (
+        """viewer.addLabel(v.label, {
+      position: {x: v.x, y: v.y, z: v.z},
+      backgroundColor: 'black',
+      backgroundOpacity: 0.6,
+      fontColor: 'white',
+      fontSize: 11,
+      showBackground: true,
+      inFront: true,
+    });"""
+        if show_variant_labels
+        else ""
+    )
 
     full_html = f"""<!DOCTYPE html>
 <html>
@@ -609,13 +426,54 @@ def render_chain_overview_html(
   Structure: {struct.chain_id} | alignment identity {alignment.identity:.1%},
   coverage {alignment.coverage:.1%} | {footnote}
 </p>
-<div style="display:flex;flex-wrap:wrap;gap:24px;">
-{chain_legend_html}
-{class_legend_html}
+<div style="margin:8px;">
+  <label style="font-size:13px;color:#333;">Color by:
+    <select id="modeSelect">
+{mode_options_html}
+    </select>
+  </label>
 </div>
+<div id="viewerContainer" style="width:1400px;height:750px;position:relative;"></div>
+<div id="legendContainer" style="display:flex;flex-wrap:wrap;gap:24px;"></div>
 <script>{js_text}</script>
-<script>var $3Dmolpromise = Promise.resolve();</script>
-{viewer_html}
+<script>
+(function() {{
+  var element = document.getElementById('viewerContainer');
+  var viewer = $3Dmol.createViewer(element, {{backgroundColor: 'white'}});
+  viewer.addModel({json.dumps(struct.raw_text)}, {json.dumps(struct.fmt)});
+
+  var modeRegions = {json.dumps(mode_regions_json)};
+  var modeLegends = {json.dumps(mode_legends_json)};
+  var classLegendHtml = {json.dumps(class_legend_html)};
+  var variantSpheres = {json.dumps(variant_spheres)};
+
+  function applyMode(mode) {{
+    viewer.setStyle({{}}, {{cartoon: {{color: 'lightgray', opacity: 0.55}}}});
+    (modeRegions[mode] || []).forEach(function(r) {{
+      viewer.setStyle({{chain: r.chain, resi: r.resi}}, {{cartoon: {{color: r.color, opacity: 0.55}}}});
+    }});
+    document.getElementById('legendContainer').innerHTML = (modeLegends[mode] || '') + classLegendHtml;
+    viewer.render();
+  }}
+
+  variantSpheres.forEach(function(v) {{
+    viewer.addSphere({{
+      center: {{x: v.x, y: v.y, z: v.z}},
+      radius: 1.9,
+      color: v.color,
+    }});
+    {add_label_js}
+  }});
+
+  applyMode({json.dumps(default_mode)});
+  viewer.zoomTo();
+  viewer.render();
+
+  document.getElementById('modeSelect').addEventListener('change', function(e) {{
+    applyMode(e.target.value);
+  }});
+}})();
+</script>
 </body>
 </html>"""
 

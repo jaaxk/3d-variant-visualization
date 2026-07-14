@@ -7,12 +7,10 @@ import pytest
 from protein_vis.colors import ColorMap, generate_categorical_palette
 from protein_vis.domains import Domain
 from protein_vis.render import (
+    ModeScheme,
     RenderError,
-    render_chain_overview_html,
-    render_chain_overview_png,
-    render_domain_overview_html,
-    render_domain_overview_png,
     render_interactive_html,
+    render_multi_mode_overview_html,
     render_static_png,
 )
 from protein_vis.structure import AlignmentResult, StructureData
@@ -159,132 +157,107 @@ def _make_domains() -> list[Domain]:
     ]
 
 
-def test_render_domain_overview_png_writes_file(tmp_path):
-    struct = _make_tiny_struct()
-    alignment = _make_alignment()
-    class_colors = ColorMap()
+def _make_domain_mode_scheme() -> ModeScheme:
     domains = _make_domains()
     domain_colors = ColorMap(fallback_cycle=generate_categorical_palette(len(domains)))
-
-    out = render_domain_overview_png(
-        struct,
-        _make_variants_df(),
-        alignment,
-        class_colors,
-        domain_colors,
-        domains,
-        tmp_path / "domain_overview.png",
-        title="test",
-    )
-    assert out.exists()
-    assert out.stat().st_size > 0
-
-
-def test_render_domain_overview_html_shows_both_legends(tmp_path):
+    alignment = _make_alignment()
     struct = _make_tiny_struct()
+    regions = []
+    legend = []
+    for domain in domains:
+        resnums = sorted(
+            {alignment.pos_to_resnum[p] for p in range(domain.start, domain.end + 1)
+             if p in alignment.pos_to_resnum} & set(struct.ca_coords)
+        )
+        color = domain_colors.get(domain.name)
+        regions.append((struct.chain_id, resnums, color))
+        legend.append((domain.name, color))
+    return ModeScheme(label="Domain", regions=regions, legend_items=legend)
+
+
+def _make_chain_mode_scheme(struct: StructureData, chain_labels=None) -> ModeScheme:
+    from protein_vis.render import _group_chains_by_sequence
+
+    chain_colors = ColorMap()
+    groups = _group_chains_by_sequence(struct, chain_labels)
+    regions, legend = [], []
+    for label, chain_ids in groups.items():
+        color = chain_colors.get(label)
+        legend.append((label, color))
+        for chain_id in chain_ids:
+            regions.append((chain_id, sorted(struct.all_chain_ca_coords[chain_id]), color))
+    return ModeScheme(label="Chain", regions=regions, legend_items=legend)
+
+
+def test_render_multi_mode_overview_writes_all_modes(tmp_path):
+    struct = _make_multichain_struct()
     alignment = _make_alignment()
     class_colors = ColorMap()
-    domains = _make_domains()
-    domain_colors = ColorMap(fallback_cycle=generate_categorical_palette(len(domains)))
     cache_dir = tmp_path / "cache"
     (cache_dir / "js").mkdir(parents=True)
     (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
 
-    out = render_domain_overview_html(
-        struct,
-        _make_variants_df(),
-        alignment,
-        class_colors,
-        domain_colors,
-        domains,
-        tmp_path / "domain_overview.html",
-        title="test",
-        cache_dir=cache_dir,
+    modes = {
+        "Chain": _make_chain_mode_scheme(struct, chain_labels={"D": "PKD1", "A": "PKD2"}),
+        "Domain": _make_domain_mode_scheme(),
+    }
+
+    out = render_multi_mode_overview_html(
+        struct, _make_variants_df(), alignment, class_colors, modes,
+        tmp_path / "overview.html", title="test", cache_dir=cache_dir,
     )
     html = out.read_text()
+    # Every mode's regions/legend are embedded up front (so the dropdown can
+    # switch client-side without reloading) -- not just the default mode's.
     assert "domain_one" in html
     assert "domain_two" in html
-    assert "classA" in html
-    assert "classB" in html
-    assert "Domains" in html
-    assert "Variant class" in html
+    assert "PKD1" in html
+    assert "PKD2" in html
+    assert '<option value="Chain" selected>' in html
+    assert '<option value="Domain">' in html
+    assert "modeSelect" in html
+    assert "classA" in html and "classB" in html
     # self-contained/offline invariant must still hold for this render path too.
     assert "THIS_IS_THE_STUB_3DMOL_JS" in html
     assert "cdn.jsdelivr" not in html
     assert "3dmol.org" not in html.lower()
 
 
-def test_render_chain_overview_groups_identical_sequences(tmp_path):
+def test_render_multi_mode_overview_respects_default_mode(tmp_path):
     struct = _make_multichain_struct()
     alignment = _make_alignment()
     class_colors = ColorMap()
-    chain_colors = ColorMap()
-
-    out = render_chain_overview_png(
-        struct,
-        _make_variants_df(),
-        alignment,
-        class_colors,
-        chain_colors,
-        tmp_path / "chain_overview.png",
-        title="test",
-    )
-    assert out.exists() and out.stat().st_size > 0
-
-
-def test_render_chain_overview_html_uses_custom_labels(tmp_path):
-    struct = _make_multichain_struct()
-    alignment = _make_alignment()
-    class_colors = ColorMap()
-    chain_colors = ColorMap()
     cache_dir = tmp_path / "cache"
     (cache_dir / "js").mkdir(parents=True)
     (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
 
-    out = render_chain_overview_html(
-        struct,
-        _make_variants_df(),
-        alignment,
-        class_colors,
-        chain_colors,
-        tmp_path / "chain_overview.html",
-        title="test",
-        cache_dir=cache_dir,
-        chain_labels={"D": "PKD1", "A": "PKD2"},
+    modes = {
+        "Chain": _make_chain_mode_scheme(struct),
+        "Domain": _make_domain_mode_scheme(),
+    }
+    out = render_multi_mode_overview_html(
+        struct, _make_variants_df(), alignment, class_colors, modes,
+        tmp_path / "overview.html", title="test", cache_dir=cache_dir, default_mode="Domain",
     )
     html = out.read_text()
-    # A and B share a sequence and should collapse to one legend entry,
-    # labeled "PKD2" (from A's label) rather than "A, B".
-    assert "PKD1" in html
-    assert "PKD2" in html
-    assert "A, B" not in html
-    assert "Chain" in html
-    assert "cdn.jsdelivr" not in html
-    assert "3dmol.org" not in html.lower()
+    assert '<option value="Domain" selected>' in html
+    assert '<option value="Chain">' in html
 
 
-def test_render_chain_overview_html_without_labels_falls_back_to_chain_ids(tmp_path):
-    struct = _make_multichain_struct()
+def test_render_multi_mode_overview_rejects_unknown_default_mode(tmp_path):
+    struct = _make_tiny_struct()
     alignment = _make_alignment()
     class_colors = ColorMap()
-    chain_colors = ColorMap()
     cache_dir = tmp_path / "cache"
     (cache_dir / "js").mkdir(parents=True)
     (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
 
-    out = render_chain_overview_html(
-        struct,
-        _make_variants_df(),
-        alignment,
-        class_colors,
-        chain_colors,
-        tmp_path / "chain_overview.html",
-        title="test",
-        cache_dir=cache_dir,
-    )
-    html = out.read_text()
-    assert "A, B" in html
-    assert ">D<" in html
+    modes = {"Chain": _make_chain_mode_scheme(_make_multichain_struct())}
+    with pytest.raises(RenderError):
+        render_multi_mode_overview_html(
+            struct, _make_variants_df(), alignment, class_colors, modes,
+            tmp_path / "overview.html", title="test", cache_dir=cache_dir, default_mode="Nope",
+        )
 
 
 def test_render_interactive_html_shows_variant_labels_when_requested(tmp_path):
@@ -305,6 +278,31 @@ def test_render_interactive_html_shows_variant_labels_when_requested(tmp_path):
     )
     # addLabel calls (and hence the variant names) should only appear in the
     # labeled render -- the plain one stays exactly as before.
+    assert "addLabel" not in plain.read_text()
+    labeled_html = labeled.read_text()
+    assert "addLabel" in labeled_html
+    assert "M5V" in labeled_html
+    assert "A8G" in labeled_html
+
+
+def test_render_multi_mode_overview_shows_variant_labels_when_requested(tmp_path):
+    struct = _make_tiny_struct()
+    alignment = _make_alignment()
+    class_colors = ColorMap()
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "js").mkdir(parents=True)
+    (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+    modes = {"Domain": _make_domain_mode_scheme()}
+
+    plain = render_multi_mode_overview_html(
+        struct, _make_variants_df(), alignment, class_colors, modes,
+        tmp_path / "plain.html", title="test", cache_dir=cache_dir, default_mode="Domain",
+    )
+    labeled = render_multi_mode_overview_html(
+        struct, _make_variants_df(), alignment, class_colors, modes,
+        tmp_path / "labeled.html", title="test", cache_dir=cache_dir, default_mode="Domain",
+        show_variant_labels=True,
+    )
     assert "addLabel" not in plain.read_text()
     labeled_html = labeled.read_text()
     assert "addLabel" in labeled_html

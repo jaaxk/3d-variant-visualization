@@ -84,13 +84,50 @@ def fetch(structures, accessions, cache_dir, bootstrap_js, force):
          "before any coloring/grouping logic runs. Combine with --class-color to "
          "give the synthetic class its own color.",
 )
+@click.option(
+    "--chain-uniprot", "chain_uniprot_pairs", multiple=True,
+    help="Repeatable 'chain_id=ACCESSION' (e.g. 'A=Q13563'), only needed for "
+         "multi-protein complexes -- names which UniProt accession each "
+         "OTHER chain-group (besides the primary --uniprot/--structure chain) "
+         "belongs to, so the overview's Domain/Topology color modes can be "
+         "computed for it too via its own alignment. The primary chain "
+         "already gets this from --uniprot and never needs an entry here.",
+)
+@click.option(
+    "--domains-for", "domains_for_pairs", multiple=True,
+    help="Repeatable 'ACCESSION=path_or_auto', paired with --chain-uniprot -- "
+         "which domain config to use for a secondary accession's Domain mode "
+         "(defaults to 'auto' if the accession has no entry here).",
+)
+@click.option(
+    "--provenance", "provenance_path", type=click.Path(exists=True), default=None,
+    help="Path to an EM/AF provenance JSON (chain_id -> [EM resnum, ...], see "
+         "af2_modeling/scripts/graft_6a70_onto_prediction.py's --provenance-output) "
+         "-- when given, the overview gets an extra 'EM/AF' color mode. Omit for "
+         "structures that weren't produced by grafting a real structure onto a "
+         "prediction.",
+)
+@click.option(
+    "--interface-json", "interface_json", type=click.Path(exists=True), default=None,
+    help="Path to a {ACCESSION: [uniprot_pos, ...]} JSON (see "
+         "scripts/compute_pkd1_pkd2_interface.py) -- when given, an extra "
+         "domain (named by --interface-domain-name) is merged into every "
+         "accession's Domain mode wherever that accession has an entry.",
+)
+@click.option(
+    "--interface-domain-name", default="Interface", show_default=True,
+    help="Display name for the domain added by --interface-json.",
+)
 def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_arg,
            output_dir, no_strict_wt, min_identity, chain_label_pairs, class_color_pairs,
-           variant_class_pairs):
+           variant_class_pairs, chain_uniprot_pairs, domains_for_pairs, provenance_path,
+           interface_json, interface_domain_name):
     """Run inside the SLURM job / compute node. Never calls the network."""
     chain_labels = dict(pair.split("=", 1) for pair in chain_label_pairs)
     class_color_overrides = dict(pair.split("=", 1) for pair in class_color_pairs)
     variant_class_overrides = dict(pair.split("=", 1) for pair in variant_class_pairs)
+    chain_uniprot = dict(pair.split("=", 1) for pair in chain_uniprot_pairs)
+    domains_for = dict(pair.split("=", 1) for pair in domains_for_pairs)
     pipeline.run_render(
         variants_csv=variants_csv,
         structure_spec=structure_spec,
@@ -103,6 +140,11 @@ def render(variants_csv, structure_spec, uniprot_accession, cache_dir, domains_a
         chain_labels=chain_labels,
         class_color_overrides=class_color_overrides,
         variant_class_overrides=variant_class_overrides,
+        chain_uniprot=chain_uniprot,
+        domains_for=domains_for,
+        provenance_path=provenance_path,
+        interface_json=interface_json,
+        interface_domain_name=interface_domain_name,
     )
 
 

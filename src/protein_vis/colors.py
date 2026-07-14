@@ -21,6 +21,19 @@ CLASS_COLORS: dict[str, str] = {
     "hypomorphic": "#FB8C00",
 }
 
+# Fixed (not generated) -- topology is always exactly these 3 categories,
+# and provenance always exactly these 2, regardless of protein.
+TOPOLOGY_COLORS: dict[str, str] = {
+    "Cytoplasmic": "#66BB6A",
+    "Transmembrane": "#FFA726",
+    "Extracellular": "#42A5F5",
+}
+
+PROVENANCE_COLORS: dict[str, str] = {
+    "EM (6A70)": "#8E24AA",
+    "AF prediction": "#B0BEC5",
+}
+
 DEFAULT_COLOR = "#9E9E9E"
 
 # Assigned in order to any class name not present in CLASS_COLORS.
