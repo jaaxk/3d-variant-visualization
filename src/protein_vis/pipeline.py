@@ -93,18 +93,18 @@ def _regions_and_legend(
     resolved_resnums: set[int],
     paint_chain_ids: list[str],
     color_map: ColorMap,
-) -> tuple[list[tuple[str, list[int], str]], list[tuple[str, str]]]:
+) -> tuple[list[tuple[str, list[int], str, str]], list[tuple[str, str]]]:
     """(regions, legend_items) for one chain-group's domain/topology
     coloring -- regions repeated across every chain id in `paint_chain_ids`
     (the chain-group, see _chain_group_for) since they all share the same
     resnum mapping."""
-    regions: list[tuple[str, list[int], str]] = []
+    regions: list[tuple[str, list[int], str, str]] = []
     legend: list[tuple[str, str]] = []
     seen_names: set[str] = set()
     for domain, resnums in render_mod._domain_resnums(domains_list, alignment, resolved_resnums):
         color = color_map.get(domain.name)
         for chain_id in paint_chain_ids:
-            regions.append((chain_id, resnums, color))
+            regions.append((chain_id, resnums, color, domain.name))
         if domain.name not in seen_names:
             seen_names.add(domain.name)
             legend.append((domain.name, color))
@@ -229,13 +229,13 @@ def run_render(
 
     # --- Chain mode ---
     chain_colors = ColorMap()
-    chain_regions: list[tuple[str, list[int], str]] = []
+    chain_regions: list[tuple[str, list[int], str, str]] = []
     chain_legend: list[tuple[str, str]] = []
     for label, chain_ids in chain_groups.items():
         color = chain_colors.get(label)
         chain_legend.append((label, color))
         for chain_id in chain_ids:
-            chain_regions.append((chain_id, sorted(struct.all_chain_ca_coords[chain_id]), color))
+            chain_regions.append((chain_id, sorted(struct.all_chain_ca_coords[chain_id]), color, label))
 
     # --- Domain + Topology modes (per chain-group, each aligned to its own accession) ---
     # First pass: resolve each chain-group's own alignment/domain-list/topology-list
@@ -266,10 +266,10 @@ def run_render(
     domain_colors = ColorMap(fallback_cycle=generate_categorical_palette(total_domain_count))
     topology_colors = ColorMap(overrides=TOPOLOGY_COLORS)
 
-    domain_regions: list[tuple[str, list[int], str]] = []
+    domain_regions: list[tuple[str, list[int], str, str]] = []
     domain_legend: list[tuple[str, str]] = []
     domain_seen: set[str] = set()
-    topology_regions: list[tuple[str, list[int], str]] = []
+    topology_regions: list[tuple[str, list[int], str, str]] = []
     topology_legend: list[tuple[str, str]] = []
     topology_seen: set[str] = set()
 
@@ -300,7 +300,7 @@ def run_render(
     # Sidecar schema is {chain_id: {resnum_str: label}} -- a fully general per-residue
     # label map (not hardcoded to any fixed count of categories), so this stays correct
     # whether the structure went through one graft stage or several chained ones. ---
-    provenance_regions: list[tuple[str, list[int], str]] = []
+    provenance_regions: list[tuple[str, list[int], str, str]] = []
     provenance_legend: list[tuple[str, str]] = []
     if provenance_path:
         provenance = json.loads(Path(provenance_path).read_text())
@@ -318,7 +318,7 @@ def run_render(
                 if label is not None:
                     by_label.setdefault(label, []).append(resnum)
             for label, resnums in by_label.items():
-                provenance_regions.append((chain_id, sorted(resnums), provenance_colors.get(label)))
+                provenance_regions.append((chain_id, sorted(resnums), provenance_colors.get(label), label))
         provenance_legend = provenance_colors.legend_items()
 
     modes = {

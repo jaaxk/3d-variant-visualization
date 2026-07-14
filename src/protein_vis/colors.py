@@ -31,8 +31,8 @@ TOPOLOGY_COLORS: dict[str, str] = {
 
 PROVENANCE_COLORS: dict[str, str] = {
     "6A70": "#8E24AA",
-    "AlphaFold2: Complex": "#B0BEC5",
-    "AlphaFold2: PKD1 monomer": "#546E7A",
+    "AlphaFold2: Complex": "#00897B",
+    "AlphaFold2: PKD1 monomer": "#EF6C00",
 }
 
 DEFAULT_COLOR = "#9E9E9E"

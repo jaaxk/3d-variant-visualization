@@ -16,6 +16,7 @@ the output fully self-contained/offline:
 
 from __future__ import annotations
 
+import html as html_mod
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,33 @@ def _build_legend_html(items: list[tuple[str, str]], heading: str | None = None)
     )
     heading_html = (
         f'<h4 style="margin:8px 8px 0;font-family:sans-serif;">{heading}</h4>' if heading else ""
+    )
+    return (
+        f"{heading_html}"
+        f'<ul style="list-style:none;padding:0;margin:8px;font-family:sans-serif;">{rows}</ul>'
+    )
+
+
+def _build_checkbox_legend_html(items: list[tuple[str, str]], heading: str | None = None) -> str:
+    """Like _build_legend_html, but each row is a checkbox (checked by
+    default) instead of a plain swatch -- used for a mode's own backbone-
+    coloring legend (never the variant-class legend), so a category with
+    many entries (e.g. every UniProt domain) can be selectively toggled
+    on/off client-side. `.modeCategoryCheckbox`/`data-name` are the hooks
+    render_multi_mode_overview_html's JS binds to."""
+    rows = "\n".join(
+        f'<li><label style="cursor:pointer;">'
+        f'<input type="checkbox" class="modeCategoryCheckbox" data-name="{html_mod.escape(name)}" checked '
+        f'style="vertical-align:middle;margin-right:4px;">'
+        f'<span style="display:inline-block;width:12px;height:12px;'
+        f'background:{color};margin-right:6px;border-radius:50%;vertical-align:middle;"></span>'
+        f"{html_mod.escape(name)}</label></li>"
+        for name, color in items
+    )
+    heading_html = (
+        f'<h4 style="margin:8px 8px 0;font-family:sans-serif;">{html_mod.escape(heading)}</h4>'
+        if heading
+        else ""
     )
     return (
         f"{heading_html}"
@@ -301,19 +329,27 @@ def _group_chains_by_sequence(
     return labeled
 
 
+BACKBONE_OPACITY = 0.65
+
+
 @dataclass
 class ModeScheme:
     """One backbone-coloring option in the multi-mode overview's toggle --
     e.g. "Chain", "Domain". `regions` is applied on top of a shared plain
-    gray/0.55-opacity base style (so anything not covered by any region
+    gray/BACKBONE_OPACITY base style (so anything not covered by any region
     stays that same gray, at the same opacity -- there's no separate
-    "uncategorized" dimming). `legend_items` must already be deduped by name
-    (a category like "Cytoplasmic" or a domain that spans several
-    disjoint/discontiguous ranges legitimately produces multiple `regions`
-    entries sharing one name)."""
+    "uncategorized" dimming). Each region carries its own category `name`
+    (4th tuple element) so the legend's per-category checkboxes (see
+    _build_checkbox_legend_html) can independently show/hide it -- an
+    unchecked category's regions are simply skipped when repainting, so
+    they fall back to that same base gray, never a different/dimmer
+    treatment. `legend_items` must already be deduped by name (a category
+    like "Cytoplasmic" or a domain that spans several disjoint/
+    discontiguous ranges legitimately produces multiple `regions` entries
+    sharing one name)."""
 
     label: str
-    regions: list[tuple[str, list[int], str]]  # (chain_id, resi_list, color_hex)
+    regions: list[tuple[str, list[int], str, str]]  # (chain_id, resi_list, color_hex, name)
     legend_items: list[tuple[str, str]]  # (name, color), deduped, in display order
 
 
@@ -366,11 +402,19 @@ def render_multi_mode_overview_html(
     mapped, n_unmapped = _variant_positions_with_coords(variants_df, struct, alignment)
 
     mode_regions_json = {
-        mode: [{"chain": chain_id, "resi": resi, "color": color} for chain_id, resi, color in scheme.regions]
+        mode: [
+            {"chain": chain_id, "resi": resi, "color": color, "name": name}
+            for chain_id, resi, color, name in scheme.regions
+        ]
         for mode, scheme in modes.items()
     }
+    # Checkbox legend (not the plain swatch one) -- lets a mode with many
+    # categories (e.g. every UniProt domain) be selectively toggled on/off;
+    # an unchecked category's regions are simply skipped on repaint, falling
+    # back to the shared base gray.
     mode_legends_json = {
-        mode: _build_legend_html(scheme.legend_items, heading=scheme.label) for mode, scheme in modes.items()
+        mode: _build_checkbox_legend_html(scheme.legend_items, heading=scheme.label)
+        for mode, scheme in modes.items()
     }
 
     variant_spheres = [
@@ -451,6 +495,7 @@ def render_multi_mode_overview_html(
 <script>{js_text}</script>
 <script>
 (function() {{
+  var BACKBONE_OPACITY = {BACKBONE_OPACITY};
   var element = document.getElementById('viewerContainer');
   var viewer = $3Dmol.createViewer(element, {{backgroundColor: 'white'}});
   viewer.addModel({json.dumps(struct.raw_text)}, {json.dumps(struct.fmt)});
@@ -460,13 +505,33 @@ def render_multi_mode_overview_html(
   var classLegendHtml = {json.dumps(class_legend_html)};
   var variantSpheres = {json.dumps(variant_spheres)};
 
-  function applyMode(mode) {{
-    viewer.setStyle({{}}, {{cartoon: {{color: 'lightgray', opacity: 0.55}}}});
-    (modeRegions[mode] || []).forEach(function(r) {{
-      viewer.setStyle({{chain: r.chain, resi: r.resi}}, {{cartoon: {{color: r.color, opacity: 0.55}}}});
+  // Repaints the CURRENT mode's regions, skipping any category whose
+  // checkbox is unchecked (it falls back to the base gray set below --
+  // never a separate/dimmer treatment). Reads checkbox state straight from
+  // the DOM rather than tracking a separate JS state object, since only one
+  // mode's checkboxes are ever shown in legendContainer at a time.
+  function repaintMode(mode) {{
+    var checkedNames = new Set();
+    document.querySelectorAll('#legendContainer .modeCategoryCheckbox').forEach(function(cb) {{
+      if (cb.checked) checkedNames.add(cb.dataset.name);
     }});
-    document.getElementById('legendContainer').innerHTML = (modeLegends[mode] || '') + classLegendHtml;
+    viewer.setStyle({{}}, {{cartoon: {{color: 'lightgray', opacity: BACKBONE_OPACITY}}}});
+    (modeRegions[mode] || []).forEach(function(r) {{
+      if (checkedNames.has(r.name)) {{
+        viewer.setStyle({{chain: r.chain, resi: r.resi}}, {{cartoon: {{color: r.color, opacity: BACKBONE_OPACITY}}}});
+      }}
+    }});
     viewer.render();
+  }}
+
+  // Rebuilds the legend for a newly-selected mode (every category starts
+  // checked/on) and wires each checkbox to live-repaint on toggle.
+  function applyMode(mode) {{
+    document.getElementById('legendContainer').innerHTML = (modeLegends[mode] || '') + classLegendHtml;
+    document.querySelectorAll('#legendContainer .modeCategoryCheckbox').forEach(function(cb) {{
+      cb.addEventListener('change', function() {{ repaintMode(mode); }});
+    }});
+    repaintMode(mode);
   }}
 
   variantSpheres.forEach(function(v) {{

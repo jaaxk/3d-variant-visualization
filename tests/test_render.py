@@ -170,7 +170,7 @@ def _make_domain_mode_scheme() -> ModeScheme:
              if p in alignment.pos_to_resnum} & set(struct.ca_coords)
         )
         color = domain_colors.get(domain.name)
-        regions.append((struct.chain_id, resnums, color))
+        regions.append((struct.chain_id, resnums, color, domain.name))
         legend.append((domain.name, color))
     return ModeScheme(label="Domain", regions=regions, legend_items=legend)
 
@@ -185,7 +185,7 @@ def _make_chain_mode_scheme(struct: StructureData, chain_labels=None) -> ModeSch
         color = chain_colors.get(label)
         legend.append((label, color))
         for chain_id in chain_ids:
-            regions.append((chain_id, sorted(struct.all_chain_ca_coords[chain_id]), color))
+            regions.append((chain_id, sorted(struct.all_chain_ca_coords[chain_id]), color, label))
     return ModeScheme(label="Chain", regions=regions, legend_items=legend)
 
 
