@@ -1,47 +1,73 @@
 #!/usr/bin/env python3
-"""Graft 6A70's real deposited coordinates onto the overlapping region of a
-new AlphaFold2 PKD1/PKD2 complex prediction.
+"""Graft a template structure's real coordinates onto the overlapping region
+of an AlphaFold2 prediction -- and, via chaining, onto the output of a prior
+run of this same script.
 
 Why: AlphaFold's template mechanism feeds a template's structure into the
 network as a learned input feature -- it never copies template coordinates
-directly. So even with 6A70 found as a template during modeling, the
-predicted region overlapping 6A70 will be *influenced by* but not identical
-to 6A70's real coordinates. This script makes it identical, as a
-post-processing step that doesn't depend on which templates AlphaFold's own
-search happened to use:
+directly. So even with a template found during modeling, the predicted
+region overlapping it will be *influenced by* but not identical to its real
+coordinates. This script makes it identical, as a post-processing step that
+doesn't depend on which templates AlphaFold's own search happened to use:
 
-1. Match each chain in the prediction to its corresponding chain in 6A70 by
-   sequence (never assume chain-letter conventions match between the two
-   files -- same principle protein_vis itself follows throughout).
+1. Match each chain in the prediction to its corresponding chain in the
+   template by sequence (never assume chain-letter conventions match between
+   the two files -- same principle protein_vis itself follows throughout).
 2. Align each matched pair's sequences (BLOSUM62, same method as
    protein_vis.structure.align_to_reference) to find the shared residue
    range, independent of either file's internal numbering.
 3. Compute ONE rigid-body superposition (Bio.PDB.Superimposer) from ALL
    matched/shared CA atoms across ALL chains combined, and apply it to the
-   entire predicted structure -- so the whole assembly moves into 6A70's
-   reference frame together, preserving whatever inter-chain packing the
-   prediction produced for the new region.
-4. Splice: keep 6A70's real atoms for shared residues, keep the
+   entire predicted structure -- so the whole assembly moves into the
+   template's reference frame together, preserving whatever inter-chain
+   packing the prediction produced for the new region.
+4. Splice: keep the template's real atoms for shared residues, keep the
    (transformed) prediction's atoms for new residues. This is a hard splice
    -- it may leave a small bond-length/angle discontinuity right at the
    junction, since the prediction's coordinates there won't land exactly on
-   6A70's. A rigorous fix (e.g. a short OpenMM energy minimization localized
-   to the junction residues) is a documented follow-up in the README, not
-   built here -- not worth introducing a whole MD dependency for what's
-   likely a sub-angstrom kink at one or two residues, until/unless it turns
-   out to actually matter for downstream use.
+   the template's. A rigorous fix (e.g. a short OpenMM energy minimization
+   localized to the junction residues) is a documented follow-up in the
+   README, not built here -- not worth introducing a whole MD dependency for
+   what's likely a sub-angstrom kink at one or two residues, until/unless it
+   turns out to actually matter for downstream use.
+5. Optionally (--include-unmatched-template-chains) carry through, unchanged,
+   any template chain that no predicted chain matched -- e.g. when grafting a
+   PKD1-only monomer prediction onto an already-grafted PKD1/PKD2 complex,
+   the complex's 3 PKD2 chains have no counterpart in the monomer prediction
+   at all, but still belong in the final merged structure.
 
-Usage:
+Chaining across multiple graft stages: each run can optionally read the
+*previous* stage's provenance sidecar (--template-provenance) to know what
+--template's own residues already are (e.g. "6A70" vs "AlphaFold2: Complex"),
+so a matched residue's output label is inherited from that prior stage
+rather than collapsed back to a single generic "template" bucket. This is
+how a chain of grafts accumulates a full N-way per-residue provenance map
+across every stage, not just a binary this-run-vs-that-run split.
+
+Usage (stage 1 -- template is a real deposited structure, e.g. 6A70):
     python graft_6a70_onto_prediction.py \\
         --predicted /scratch/.../ranked_0.pdb \\
         --template /scratch/jv2807/pkd1/structure_cache/structures/PDB-6A70.pdb \\
-        --output /scratch/.../pkd1_pkd2_grafted.pdb
+        --output /scratch/.../pkd1_pkd2_grafted.pdb \\
+        --provenance-output /scratch/.../pkd1_pkd2_grafted.provenance.json \\
+        --new-label "AlphaFold2: Complex"
+
+Usage (stage 2 -- template is stage 1's own output, chaining provenance):
+    python graft_6a70_onto_prediction.py \\
+        --predicted /scratch/.../fold_pkd1_human_model_0.cif \\
+        --template /scratch/.../pkd1_pkd2_grafted.pdb \\
+        --template-provenance /scratch/.../pkd1_pkd2_grafted.provenance.json \\
+        --new-label "AlphaFold2: PKD1 monomer" \\
+        --include-unmatched-template-chains \\
+        --output /scratch/.../pkd1_full_pkd2_grafted.pdb \\
+        --provenance-output /scratch/.../pkd1_full_pkd2_grafted.provenance.json
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import string
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -220,17 +246,101 @@ def compute_chain_matches(predicted_chains, template_chains, min_identity: float
     return assignment, per_chain_matches
 
 
-def write_provenance(per_chain_matches: dict, out_path: str) -> None:
-    """{predicted_chain_id: [resnum, ...]} of every residue covered by the
-    template ("EM"); any resnum absent from its chain's list is implicitly
-    AF-predicted -- consumers never need a second "AF" list."""
-    provenance = {
-        chain_id: sorted(resnum_map)
-        for chain_id, resnum_map in per_chain_matches.items()
-    }
-    Path(out_path).write_text(json.dumps(provenance, indent=2, sort_keys=True))
-    n_em = sum(len(v) for v in provenance.values())
-    print(f"wrote provenance ({n_em} EM residue(s) across {len(provenance)} chain(s)) -> {out_path}")
+def assign_passthrough_ids(
+    existing_ids: set,
+    template_chains: list,
+    assigned_tmpl_chain_ids: set,
+) -> dict:
+    """Decide the final output chain id for every --template chain that no
+    --predicted chain matched (the "passthrough" chains -- e.g. the 3 PKD2
+    chains when grafting a PKD1-only monomer onto an already-grafted
+    complex). Matched --predicted chains are never renamed by this script;
+    passthrough chains are renamed only if their original id collides with
+    an id already in use, via a single running `used` set updated
+    immediately after each assignment (so a later passthrough chain's
+    collision check sees earlier renames, not just the original id set).
+    Iterates template_chains in their original file order for a
+    deterministic result regardless of dict/set iteration order elsewhere.
+    """
+    used = set(existing_ids)
+    pool = list(string.ascii_uppercase) + [str(d) for d in range(10)]
+    mapping = {}
+    for tmpl_info in template_chains:
+        orig_id = tmpl_info.chain.id
+        if orig_id in assigned_tmpl_chain_ids:
+            continue
+        if orig_id not in used:
+            new_id = orig_id
+        else:
+            new_id = next(c for c in pool if c not in used)
+            print(f"  passthrough template chain {orig_id!r} renamed -> {new_id!r} (id collision)")
+        used.add(new_id)
+        mapping[orig_id] = new_id
+    return mapping
+
+
+def build_provenance_labels(
+    predicted_chains: list,
+    per_chain_matches: dict,
+    template_provenance: dict | None,
+    default_label: str,
+    new_label: str,
+    passthrough_chains: dict,
+) -> dict:
+    """{output_chain_id: {resnum_str: label}} for every residue in the final
+    output structure -- both the (possibly partially-spliced) predicted
+    chains and any passthrough template chains.
+
+    For a predicted chain's residue matched to the template: label is
+    inherited from `template_provenance[tmpl_chain_id][str(tmpl_resnum)]` if
+    that sidecar was given and has an entry, else `default_label` (the
+    template genuinely IS the original source, e.g. 6A70 itself, when no
+    prior-stage provenance exists). For a predicted chain's residue with no
+    template match at all: `new_label` (genuinely new this stage).
+
+    For a passthrough chain (no predicted counterpart): every residue's
+    label is copied verbatim from `template_provenance` for that chain's
+    *original* template id, or `default_label` for all of it if no
+    `template_provenance` was given.
+
+    Pure function of already-computed data -- no alignment/matching here.
+    """
+    template_provenance = template_provenance or {}
+    labels: dict = {}
+
+    for pred_info in predicted_chains:
+        resnum_map = per_chain_matches.get(pred_info.chain.id, {})
+        chain_labels = {}
+        for resnum in pred_info.resnums:
+            if resnum in resnum_map:
+                tmpl_chain_id, tmpl_resnum = resnum_map[resnum]
+                label = template_provenance.get(tmpl_chain_id, {}).get(str(tmpl_resnum), default_label)
+            else:
+                label = new_label
+            chain_labels[str(resnum)] = label
+        labels[pred_info.chain.id] = chain_labels
+
+    for new_id, (orig_tmpl_id, tmpl_info) in passthrough_chains.items():
+        tmpl_prov = template_provenance.get(orig_tmpl_id, {})
+        labels[new_id] = {
+            str(resnum): tmpl_prov.get(str(resnum), default_label)
+            for resnum in tmpl_info.resnums
+        }
+
+    return labels
+
+
+def write_provenance(labels: dict, out_path: str) -> None:
+    """Serialize the {chain_id: {resnum_str: label}} provenance map and log
+    per-label residue counts."""
+    Path(out_path).write_text(json.dumps(labels, indent=2, sort_keys=True))
+    counts: dict = {}
+    for chain_labels in labels.values():
+        for label in chain_labels.values():
+            counts[label] = counts.get(label, 0) + 1
+    n_total = sum(counts.values())
+    counts_str = ", ".join(f"{label}={n}" for label, n in sorted(counts.items()))
+    print(f"wrote provenance ({n_total} residue(s) across {len(labels)} chain(s): {counts_str}) -> {out_path}")
 
 
 def main() -> None:
@@ -238,21 +348,44 @@ def main() -> None:
     ap.add_argument("--predicted", required=True,
                      help="AlphaFold2 prediction (PDB/mmCIF) -- or, with --provenance-only, "
                           "an already-grafted structure to compute provenance for.")
-    ap.add_argument("--template", required=True, help="6A70 structure (PDB/mmCIF)")
+    ap.add_argument("--template", required=True,
+                     help="Structure to splice real coordinates from (PDB/mmCIF) -- either a "
+                          "deposited structure (e.g. 6A70) or a prior stage's own graft output.")
     ap.add_argument("--output", required=False, help="Grafted structure output path.")
     ap.add_argument("--min-identity", type=float, default=0.9,
                      help="Minimum identity to accept a chain match (default 0.9 -- these "
                           "are the same real protein, near-identical sequence expected).")
+    ap.add_argument("--template-provenance",
+                     help="Provenance JSON sidecar (see --provenance-output) describing "
+                          "--template's OWN per-residue provenance, from a prior stage's graft. "
+                          "A matched residue's output label is inherited from this file "
+                          "(falling back to --default-label if the specific residue is "
+                          "missing); omit this when --template is a real deposited structure "
+                          "with no prior grafting stage behind it.")
+    ap.add_argument("--default-label", default="6A70",
+                     help="Label for residues spliced from --template when --template-provenance "
+                          "wasn't given (i.e. --template genuinely IS the original source, e.g. "
+                          "6A70 itself). Default: %(default)s")
+    ap.add_argument("--new-label", default="AlphaFold2",
+                     help="Label for residues in --predicted with no counterpart in --template "
+                          "at all (genuinely new this stage). Default: %(default)s")
+    ap.add_argument("--include-unmatched-template-chains", action="store_true",
+                     help="Carry through, unchanged, any --template chain that no --predicted "
+                          "chain matched (e.g. the 3 PKD2 chains when --predicted is a PKD1-only "
+                          "monomer). These chains are already in the correct reference frame, "
+                          "so no transform is applied. No-ops (with a printed note) under "
+                          "--provenance-only, since re-matching an already-merged structure by "
+                          "sequence naturally re-discovers these as ordinary matched chains.")
     ap.add_argument("--provenance-output",
-                     help="Also write a JSON sidecar (chain_id -> [EM resnum, ...]) recording "
-                          "which residues came directly from --template.")
+                     help="Also write a JSON sidecar ({chain_id: {resnum_str: label}}) recording "
+                          "each residue's provenance label.")
     ap.add_argument("--provenance-only", action="store_true",
                      help="Skip superposition/splice entirely. Just compute which residues in "
                           "--predicted have a sequence-matched (= template-resolved-density-"
                           "covered) counterpart in --template and write --provenance-output. "
-                          "Use this against an ALREADY-GRAFTED structure to get EM-vs-AF "
-                          "provenance without re-running the graft -- the same chain-matching "
-                          "the graft itself uses already defines 'covered by 6A70' exactly, so "
+                          "Use this against an ALREADY-GRAFTED structure to get provenance "
+                          "without re-running the graft -- the same chain-matching the graft "
+                          "itself uses already defines 'covered by --template' exactly, so "
                           "nothing needs to be re-modeled, only recomputed against the files "
                           "already on disk.")
     args = ap.parse_args()
@@ -268,6 +401,15 @@ def main() -> None:
     print(f"template structure:  {len(template_chains)} chain(s) "
           f"({[c.chain.id for c in template_chains]})")
 
+    template_provenance = None
+    if args.template_provenance:
+        template_provenance = json.loads(Path(args.template_provenance).read_text())
+        if any(isinstance(v, list) for v in template_provenance.values()):
+            raise SystemExit(
+                f"{args.template_provenance}: old-format (flat list) provenance JSON -- "
+                "regenerate it with this script's current version first"
+            )
+
     assignment, per_chain_matches = compute_chain_matches(
         predicted_chains, template_chains, args.min_identity
     )
@@ -275,7 +417,15 @@ def main() -> None:
     if args.provenance_only:
         if not args.provenance_output:
             raise SystemExit("--provenance-only requires --provenance-output")
-        write_provenance(per_chain_matches, args.provenance_output)
+        if args.include_unmatched_template_chains:
+            print("  --include-unmatched-template-chains is a no-op under --provenance-only "
+                  "(re-matching an already-merged structure by sequence already finds these "
+                  "chains as ordinary matches)")
+        labels = build_provenance_labels(
+            predicted_chains, per_chain_matches, template_provenance,
+            args.default_label, args.new_label, passthrough_chains={},
+        )
+        write_provenance(labels, args.provenance_output)
         return
 
     if not args.output:
@@ -322,13 +472,34 @@ def main() -> None:
 
     print(f"grafted {grafted_residue_count} residue(s) directly from the template")
 
+    # 5. Optionally carry through template chains with no predicted counterpart at all,
+    # unchanged (already in the correct reference frame -- no transform needed).
+    passthrough_chains = {}
+    if args.include_unmatched_template_chains:
+        assigned_tmpl_ids = {match.chain.id for match, _, _ in assignment.values()}
+        existing_ids = {c.chain.id for c in predicted_chains}
+        id_mapping = assign_passthrough_ids(existing_ids, template_chains, assigned_tmpl_ids)
+        for orig_id, new_id in id_mapping.items():
+            tmpl_info = next(c for c in template_chains if c.chain.id == orig_id)
+            new_chain = tmpl_info.chain.copy()
+            new_chain.id = new_id
+            predicted_model.add(new_chain)
+            passthrough_chains[new_id] = (orig_id, tmpl_info)
+        if passthrough_chains:
+            print(f"carried through {len(passthrough_chains)} unmatched template chain(s): "
+                  f"{list(passthrough_chains)}")
+
     io = PDBIO()
     io.set_structure(predicted_model)
     io.save(args.output)
     print(f"wrote {args.output}")
 
     if args.provenance_output:
-        write_provenance(per_chain_matches, args.provenance_output)
+        labels = build_provenance_labels(
+            predicted_chains, per_chain_matches, template_provenance,
+            args.default_label, args.new_label, passthrough_chains,
+        )
+        write_provenance(labels, args.provenance_output)
 
 
 if __name__ == "__main__":

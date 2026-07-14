@@ -22,7 +22,7 @@ CLASS_COLORS: dict[str, str] = {
 }
 
 # Fixed (not generated) -- topology is always exactly these 3 categories,
-# and provenance always exactly these 2, regardless of protein.
+# and provenance always exactly these 3, regardless of protein.
 TOPOLOGY_COLORS: dict[str, str] = {
     "Cytoplasmic": "#66BB6A",
     "Transmembrane": "#FFA726",
@@ -31,7 +31,8 @@ TOPOLOGY_COLORS: dict[str, str] = {
 
 PROVENANCE_COLORS: dict[str, str] = {
     "6A70": "#8E24AA",
-    "AlphaFold2": "#B0BEC5",
+    "AlphaFold2: Complex": "#B0BEC5",
+    "AlphaFold2: PKD1 monomer": "#546E7A",
 }
 
 DEFAULT_COLOR = "#9E9E9E"

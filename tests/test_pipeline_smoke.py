@@ -193,7 +193,10 @@ def test_pipeline_smoke_multichain_domains_topology_provenance_interface(tmp_pat
     output_dir = tmp_path / "output_multichain"
 
     provenance_path = tmp_path / "provenance.json"
-    provenance_path.write_text(json.dumps({"A": [101, 102, 103], "B": [201]}))
+    provenance_path.write_text(json.dumps({
+        "A": {"101": "6A70", "102": "6A70", "103": "AlphaFold2: Complex"},
+        "B": {"201": "AlphaFold2: PKD1 monomer"},
+    }))
 
     interface_json = tmp_path / "interface.json"
     interface_json.write_text(json.dumps({"TEST0001": [6], "TEST0002": [1]}))
@@ -216,8 +219,12 @@ def test_pipeline_smoke_multichain_domains_topology_provenance_interface(tmp_pat
     overview_html = (output_dir / "overview.html").read_text()
     # EM/AF mode only appears because --provenance was passed this time.
     assert '<option value="EM/AF"' in overview_html
+    # All 3 labels are present in the fixture data, across both chains -- the legend
+    # is built dynamically from labels actually encountered (see pipeline.py), not a
+    # hardcoded fixed count, so all 3 (and only these 3) must render.
     assert "6A70" in overview_html
-    assert "AlphaFold2" in overview_html
+    assert "AlphaFold2: Complex" in overview_html
+    assert "AlphaFold2: PKD1 monomer" in overview_html
     # Topology mode picks up TEST0002's Transmembrane feature via its own
     # chain-B alignment (auto_topology_from_uniprot), not just the primary
     # chain's.

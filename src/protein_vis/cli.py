@@ -101,9 +101,11 @@ def fetch(structures, accessions, cache_dir, bootstrap_js, force):
 )
 @click.option(
     "--provenance", "provenance_path", type=click.Path(exists=True), default=None,
-    help="Path to an EM/AF provenance JSON (chain_id -> [EM resnum, ...], see "
+    help="Path to an EM/AF provenance JSON (chain_id -> {resnum_str: label}, see "
          "af2_modeling/scripts/graft_6a70_onto_prediction.py's --provenance-output) "
-         "-- when given, the overview gets an extra 'EM/AF' color mode. Omit for "
+         "-- when given, the overview gets an extra 'EM/AF' color mode with one "
+         "region per distinct label actually present (e.g. '6A70', 'AlphaFold2: "
+         "Complex', 'AlphaFold2: PKD1 monomer' for a chained graft). Omit for "
          "structures that weren't produced by grafting a real structure onto a "
          "prediction.",
 )

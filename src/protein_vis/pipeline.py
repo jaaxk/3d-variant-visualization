@@ -296,22 +296,30 @@ def run_render(
                 topology_legend.append((name, color))
 
     # --- EM/AF provenance mode (optional -- only when a grafted structure's
-    # provenance sidecar was passed; see af2_modeling/scripts/graft_6a70_onto_prediction.py) ---
+    # provenance sidecar was passed; see af2_modeling/scripts/graft_6a70_onto_prediction.py).
+    # Sidecar schema is {chain_id: {resnum_str: label}} -- a fully general per-residue
+    # label map (not hardcoded to any fixed count of categories), so this stays correct
+    # whether the structure went through one graft stage or several chained ones. ---
     provenance_regions: list[tuple[str, list[int], str]] = []
     provenance_legend: list[tuple[str, str]] = []
     if provenance_path:
-        provenance_colors = ColorMap(overrides=PROVENANCE_COLORS)
-        em_color = provenance_colors.get("6A70")
-        af_color = provenance_colors.get("AlphaFold2")
-        provenance_legend = provenance_colors.legend_items()
         provenance = json.loads(Path(provenance_path).read_text())
+        if any(isinstance(v, list) for v in provenance.values()):
+            raise ValueError(
+                f"{provenance_path}: old-format (flat list) provenance JSON -- "
+                "regenerate with graft_6a70_onto_prediction.py"
+            )
+        provenance_colors = ColorMap(overrides=PROVENANCE_COLORS)
         for chain_id, ca_coords in struct.all_chain_ca_coords.items():
-            em_resnums = sorted(set(provenance.get(chain_id, [])) & set(ca_coords))
-            af_resnums = sorted(set(ca_coords) - set(em_resnums))
-            if em_resnums:
-                provenance_regions.append((chain_id, em_resnums, em_color))
-            if af_resnums:
-                provenance_regions.append((chain_id, af_resnums, af_color))
+            chain_labels = provenance.get(chain_id, {})
+            by_label: dict[str, list[int]] = {}
+            for resnum in ca_coords:
+                label = chain_labels.get(str(resnum))
+                if label is not None:
+                    by_label.setdefault(label, []).append(resnum)
+            for label, resnums in by_label.items():
+                provenance_regions.append((chain_id, sorted(resnums), provenance_colors.get(label)))
+        provenance_legend = provenance_colors.legend_items()
 
     modes = {
         "Chain": render_mod.ModeScheme(label="Chain", regions=chain_regions, legend_items=chain_legend),
