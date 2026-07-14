@@ -30,8 +30,8 @@ TOPOLOGY_COLORS: dict[str, str] = {
 }
 
 PROVENANCE_COLORS: dict[str, str] = {
-    "EM (6A70)": "#8E24AA",
-    "AF prediction": "#B0BEC5",
+    "6A70": "#8E24AA",
+    "AlphaFold2": "#B0BEC5",
 }
 
 DEFAULT_COLOR = "#9E9E9E"

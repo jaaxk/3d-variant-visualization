@@ -301,8 +301,8 @@ def run_render(
     provenance_legend: list[tuple[str, str]] = []
     if provenance_path:
         provenance_colors = ColorMap(overrides=PROVENANCE_COLORS)
-        em_color = provenance_colors.get("EM (6A70)")
-        af_color = provenance_colors.get("AF prediction")
+        em_color = provenance_colors.get("6A70")
+        af_color = provenance_colors.get("AlphaFold2")
         provenance_legend = provenance_colors.legend_items()
         provenance = json.loads(Path(provenance_path).read_text())
         for chain_id, ca_coords in struct.all_chain_ca_coords.items():

@@ -217,10 +217,47 @@ def test_render_multi_mode_overview_writes_all_modes(tmp_path):
     assert '<option value="Domain">' in html
     assert "modeSelect" in html
     assert "classA" in html and "classB" in html
+    # The legend must be visible in the raw HTML itself (statically
+    # pre-populated for the default mode), not only injected by JS at
+    # runtime -- so it's never blank regardless of how/whether the 3Dmol.js
+    # viewer script actually executes in the viewer.
+    legend_div = html[html.index('id="legendContainer"'):html.index("</div>", html.index('id="legendContainer"'))]
+    assert "PKD1" in legend_div  # default mode is Chain
+    assert "classA" in legend_div
     # self-contained/offline invariant must still hold for this render path too.
     assert "THIS_IS_THE_STUB_3DMOL_JS" in html
     assert "cdn.jsdelivr" not in html
     assert "3dmol.org" not in html.lower()
+
+
+def test_render_multi_mode_overview_legend_includes_unmapped_classes(tmp_path):
+    """A variant class with zero markers actually shown on THIS structure
+    (e.g. it only covers a region the structure doesn't resolve) must still
+    appear in the legend, flagged "(0 shown)" -- never silently vanish, since
+    that's indistinguishable from the class not existing at all."""
+    struct = _make_tiny_struct()
+    alignment = _make_alignment()
+    class_colors = ColorMap()
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "js").mkdir(parents=True)
+    (cache_dir / "js" / "3Dmol.min.js").write_text((FIXTURES / "3Dmol.min.js").read_text())
+
+    variants_df = pd.DataFrame(
+        {
+            "class_name": ["classA", "classB", "unmapped_class"],
+            "raw": ["M5V", "A8G", "M5X"],
+            "pos": [5, 8, 999],  # 999 is outside the aligned/resolved region
+        }
+    )
+    modes = {"Domain": _make_domain_mode_scheme()}
+
+    out = render_multi_mode_overview_html(
+        struct, variants_df, alignment, class_colors, modes,
+        tmp_path / "overview.html", title="test", cache_dir=cache_dir, default_mode="Domain",
+    )
+    html = out.read_text()
+    assert "classA" in html
+    assert "unmapped_class (0 shown)" in html
 
 
 def test_render_multi_mode_overview_respects_default_mode(tmp_path):

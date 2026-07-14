@@ -373,9 +373,6 @@ def render_multi_mode_overview_html(
         mode: _build_legend_html(scheme.legend_items, heading=scheme.label) for mode, scheme in modes.items()
     }
 
-    # Populates class_colors via .get() for every variant actually shown --
-    # must run before class_colors.legend_items() below, which only reports
-    # classes seen so far.
     variant_spheres = [
         {
             "x": float(item["coord"][0]),
@@ -386,7 +383,23 @@ def render_multi_mode_overview_html(
         }
         for item in mapped
     ]
-    class_legend_html = _build_legend_html(class_colors.legend_items(), heading="Variant class")
+
+    # Legend lists EVERY class in this run's variant table, not just classes
+    # that happen to have a mapped/shown marker on THIS structure -- a class
+    # with zero markers here (e.g. only in the part of the protein this
+    # structure doesn't resolve/cover) still needs to be visible and
+    # unambiguously flagged "(0 shown)", rather than silently vanishing from
+    # the legend as if it never existed.
+    shown_counts_by_class: dict[str, int] = {}
+    for item in mapped:
+        shown_counts_by_class[item["class_name"]] = shown_counts_by_class.get(item["class_name"], 0) + 1
+    class_legend_items = []
+    for class_name in variants_df["class_name"].unique():
+        color = class_colors.get(class_name)
+        shown = shown_counts_by_class.get(class_name, 0)
+        label = class_name if shown else f"{class_name} (0 shown)"
+        class_legend_items.append((label, color))
+    class_legend_html = _build_legend_html(class_legend_items, heading="Variant class")
 
     footnote = f"{len(mapped)} variant(s) shown"
     if n_unmapped:
@@ -434,7 +447,7 @@ def render_multi_mode_overview_html(
   </label>
 </div>
 <div id="viewerContainer" style="width:1400px;height:750px;position:relative;"></div>
-<div id="legendContainer" style="display:flex;flex-wrap:wrap;gap:24px;"></div>
+<div id="legendContainer" style="display:flex;flex-wrap:wrap;gap:24px;">{mode_legends_json[default_mode]}{class_legend_html}</div>
 <script>{js_text}</script>
 <script>
 (function() {{

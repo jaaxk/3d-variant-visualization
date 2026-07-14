@@ -216,8 +216,8 @@ def test_pipeline_smoke_multichain_domains_topology_provenance_interface(tmp_pat
     overview_html = (output_dir / "overview.html").read_text()
     # EM/AF mode only appears because --provenance was passed this time.
     assert '<option value="EM/AF"' in overview_html
-    assert "EM (6A70)" in overview_html
-    assert "AF prediction" in overview_html
+    assert "6A70" in overview_html
+    assert "AlphaFold2" in overview_html
     # Topology mode picks up TEST0002's Transmembrane feature via its own
     # chain-B alignment (auto_topology_from_uniprot), not just the primary
     # chain's.
