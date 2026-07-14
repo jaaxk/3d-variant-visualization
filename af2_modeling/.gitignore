@@ -1,0 +1,2 @@
+slurm/logs/*
+!slurm/logs/.gitkeep

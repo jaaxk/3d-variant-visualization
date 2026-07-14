@@ -1,10 +1,17 @@
 #!/bin/bash
 #SBATCH --account=torch_pr_800_cds
-#SBATCH --partition=h200_cds
-#SBATCH --gres=gpu:h200:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=500G
 #SBATCH --time=48:00:00
+# --gres is intentionally NOT hardcoded here -- pass it via
+# `sbatch --gres=gpu:<type>:1 run_af2_predict.sh ...` (sbatch CLI flags
+# override script #SBATCH directives). No --partition on this cluster --
+# gres+account alone route the job, matching this account's other GPU jobs'
+# convention. The cluster's AF2 install's container image is CUDA 11.4 --
+# confirmed incompatible with H200 (Hopper, needs newer CUDA for PTX/JIT)
+# via a real failure ("CUDA_ERROR_NOT_FOUND: named symbol not found" right
+# as GPU model inference started, after MSA search completed fine on CPU)
+# -- use `--gres=gpu:a100:1` (Ampere, well within CUDA 11.4 support) instead.
 #SBATCH --chdir=/home/jv2807/dms_side_projects/protein_vis/af2_modeling
 #SBATCH --output=/home/jv2807/dms_side_projects/protein_vis/af2_modeling/slurm/logs/%j.out
 #SBATCH --job-name=af2_predict
@@ -28,8 +35,16 @@
 # converging matters as much as the result itself.
 #
 # Usage:
-#   sbatch slurm/run_af2_predict.sh <fasta_path> <output_dir> [job_label] \
-#       [num_predictions_per_model] [models_to_relax] [max_template_date]
+#   sbatch --gres=gpu:<type>:1 slurm/run_af2_predict.sh \
+#       <fasta_path> <output_dir> [job_label] [num_predictions_per_model] \
+#       [models_to_relax] [max_template_date] [use_precomputed_msas]
+#
+# use_precomputed_msas ("true"/"false", default "false") -- set "true" to
+# reuse MSAs/features already computed into output_dir by a prior run
+# (AlphaFold caches features.pkl + msas/ there) instead of recomputing them
+# -- MSA search (jackhmmer/hhblits against uniref90/mgnify/bfd/uniref30) is
+# the slow, CPU-bound majority of a run's wall-time, so this matters a lot
+# when retrying just the GPU step (e.g. after a GPU-compatibility failure).
 #
 # Don't call sbatch directly with raw paths -- use a thin submit_*.sh
 # wrapper (see submit_pkd1_pkd2_full.sh) that documents exactly how each
@@ -43,6 +58,7 @@ JOB_LABEL="${3:-af2_predict}"
 NUM_PREDICTIONS_PER_MODEL="${4:-1}"
 MODELS_TO_RELAX="${5:-best}"
 MAX_TEMPLATE_DATE="${6:-$(date +%F)}"
+USE_PRECOMPUTED_MSAS="${7:-false}"
 
 exec > >(tee "/home/jv2807/dms_side_projects/protein_vis/af2_modeling/slurm/logs/${JOB_LABEL}.log") 2>&1
 
@@ -54,7 +70,7 @@ mkdir -p "${OUTPUT_DIR}"
 
 echo "[${JOB_LABEL}] fasta=${FASTA_PATH}"
 echo "[${JOB_LABEL}] output_dir=${OUTPUT_DIR}"
-echo "[${JOB_LABEL}] num_predictions_per_model=${NUM_PREDICTIONS_PER_MODEL} models_to_relax=${MODELS_TO_RELAX} max_template_date=${MAX_TEMPLATE_DATE}"
+echo "[${JOB_LABEL}] num_predictions_per_model=${NUM_PREDICTIONS_PER_MODEL} models_to_relax=${MODELS_TO_RELAX} max_template_date=${MAX_TEMPLATE_DATE} use_precomputed_msas=${USE_PRECOMPUTED_MSAS}"
 echo "[${JOB_LABEL}] node=$(hostname) gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 || echo unknown)"
 
 "${AF2_PYTHON}" "${WATCH_SCRIPT}" \
@@ -68,6 +84,7 @@ echo "[${JOB_LABEL}] node=$(hostname) gpu=$(nvidia-smi --query-gpu=name --format
     --model_preset=multimer \
     --num_multimer_predictions_per_model="${NUM_PREDICTIONS_PER_MODEL}" \
     --models_to_relax="${MODELS_TO_RELAX}" \
+    --use_precomputed_msas="${USE_PRECOMPUTED_MSAS}" \
     --use_gpu=true \
     --enable_gpu_relax=true \
     || { echo "[${JOB_LABEL}] AlphaFold2 prediction FAILED"; exit 1; }
