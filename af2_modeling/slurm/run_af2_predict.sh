@@ -1,17 +1,21 @@
 #!/bin/bash
 #SBATCH --account=torch_pr_800_cds
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=500G
+#SBATCH --mem=128G
 #SBATCH --time=48:00:00
-# --gres is intentionally NOT hardcoded here -- pass it via
-# `sbatch --gres=gpu:<type>:1 run_af2_predict.sh ...` (sbatch CLI flags
-# override script #SBATCH directives). No --partition on this cluster --
-# gres+account alone route the job, matching this account's other GPU jobs'
-# convention. The cluster's AF2 install's container image is CUDA 11.4 --
-# confirmed incompatible with H200 (Hopper, needs newer CUDA for PTX/JIT)
-# via a real failure ("CUDA_ERROR_NOT_FOUND: named symbol not found" right
-# as GPU model inference started, after MSA search completed fine on CPU)
-# -- use `--gres=gpu:a100:1` (Ampere, well within CUDA 11.4 support) instead.
+# --gres/--partition are intentionally NOT hardcoded here -- pass them via
+# `sbatch --partition=<part> --gres=gpu:<type>:1 run_af2_predict.sh ...`
+# (sbatch CLI flags override script #SBATCH directives). The cluster's AF2
+# install's container image is CUDA 11.4 -- confirmed incompatible with
+# H200 (Hopper, needs newer CUDA for PTX/JIT) via a real failure
+# ("CUDA_ERROR_NOT_FOUND: named symbol not found" right as GPU model
+# inference started, after MSA search completed fine on CPU) -- use
+# `--partition=a100_cds --gres=gpu:a100:1` (Ampere, well within CUDA 11.4
+# support) instead. --mem=128G (not the 500G originally requested) because
+# a100_cds nodes have 4 GPUs shared per node -- requesting 500G against
+# gres=gpu:a100:1 exceeded the partition's per-GPU fair-share and sbatch
+# rejected the job outright ("partition not valid for this job"); 128G is
+# confirmed to actually submit.
 #SBATCH --chdir=/home/jv2807/dms_side_projects/protein_vis/af2_modeling
 #SBATCH --output=/home/jv2807/dms_side_projects/protein_vis/af2_modeling/slurm/logs/%j.out
 #SBATCH --job-name=af2_predict
@@ -35,7 +39,7 @@
 # converging matters as much as the result itself.
 #
 # Usage:
-#   sbatch --gres=gpu:<type>:1 slurm/run_af2_predict.sh \
+#   sbatch --partition=<part> --gres=gpu:<type>:1 slurm/run_af2_predict.sh \
 #       <fasta_path> <output_dir> [job_label] [num_predictions_per_model] \
 #       [models_to_relax] [max_template_date] [use_precomputed_msas]
 #

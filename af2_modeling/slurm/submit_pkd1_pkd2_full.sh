@@ -30,7 +30,7 @@
 set -euo pipefail
 cd /home/jv2807/dms_side_projects/protein_vis/af2_modeling
 
-sbatch --gres=gpu:a100:1 slurm/run_af2_predict.sh \
+sbatch --partition=a100_cds --gres=gpu:a100:1 slurm/run_af2_predict.sh \
     fasta/pkd1_pkd2_complex_full.fasta \
     /scratch/jv2807/pkd1/af2_predictions/pkd1_pkd2_complex_full \
     pkd1_pkd2_complex_full \
