@@ -17,10 +17,11 @@
 # Usage:
 #   sbatch slurm/run_visualize.sh <variants_csv> <structure_spec> \
 #       <uniprot_accession> <domains_config> <cache_dir> <output_dir> \
-#       [job_label] [chain_labels] [class_colors] [variant_class_overrides]
+#       [job_label] [chain_labels] [class_colors] [variant_class_overrides] \
+#       [chain_uniprot] [domains_for] [provenance_path] [interface_json]
 #
 # chain_labels (optional) -- comma-separated chain_id=Name pairs (e.g.
-# "D=PKD1,A=PKD2"), only used to label the chain_overview legend for
+# "D=PKD1,A=PKD2"), only used to label the Chain-mode legend for
 # multi-chain structures with real protein names instead of raw chain
 # letters. Naming any one chain in a group of identical-sequence chains
 # labels the whole group.
@@ -34,6 +35,23 @@
 # reassign specific variants to a (possibly synthetic) class before
 # rendering, so that class -- and its color, via class_colors above --
 # takes precedence over whatever class the variant CSV originally assigned.
+#
+# chain_uniprot (optional) -- comma-separated chain_id=ACCESSION pairs (e.g.
+# "A=Q13563") naming which UniProt accession every OTHER chain-group
+# (besides the primary uniprot_accession) belongs to, so the overview's
+# Domain/Topology modes can be computed for it too.
+#
+# domains_for (optional) -- comma-separated ACCESSION=path_or_auto pairs,
+# paired with chain_uniprot -- which domain config to use for a secondary
+# accession's Domain mode (defaults to "auto" if omitted for that accession).
+#
+# provenance_path (optional) -- path to an EM/AF provenance JSON (see
+# af2_modeling/scripts/graft_6a70_onto_prediction.py's --provenance-output);
+# when given, the overview gets an extra "EM/AF" color mode.
+#
+# interface_json (optional) -- path to a {ACCESSION: [uniprot_pos, ...]}
+# JSON (see scripts/compute_pkd1_pkd2_interface.py); when given, an
+# "Interface" domain is merged into every accession's Domain mode.
 #
 # Don't call sbatch directly with raw paths from the shell -- use one of the
 # thin per-run wrapper scripts (submit_*.sh) instead, which document exactly
@@ -51,6 +69,10 @@ JOB_LABEL="${7:-protein_vis_render}"
 CHAIN_LABELS="${8:-}"
 CLASS_COLORS="${9:-}"
 VARIANT_CLASS_OVERRIDES="${10:-}"
+CHAIN_UNIPROT="${11:-}"
+DOMAINS_FOR="${12:-}"
+PROVENANCE_PATH="${13:-}"
+INTERFACE_JSON="${14:-}"
 
 exec > >(tee "/home/jv2807/dms_side_projects/protein_vis/slurm/logs/${JOB_LABEL}.log") 2>&1
 
@@ -92,13 +114,43 @@ if [ -n "${VARIANT_CLASS_OVERRIDES}" ]; then
     done
 fi
 
+CHAIN_UNIPROT_FLAGS=""
+if [ -n "${CHAIN_UNIPROT}" ]; then
+    echo "[${JOB_LABEL}] chain_uniprot=${CHAIN_UNIPROT}"
+    IFS=',' read -ra PAIRS <<< "${CHAIN_UNIPROT}"
+    for pair in "${PAIRS[@]}"; do
+        CHAIN_UNIPROT_FLAGS="${CHAIN_UNIPROT_FLAGS} --chain-uniprot ${pair}"
+    done
+fi
+
+DOMAINS_FOR_FLAGS=""
+if [ -n "${DOMAINS_FOR}" ]; then
+    echo "[${JOB_LABEL}] domains_for=${DOMAINS_FOR}"
+    IFS=',' read -ra PAIRS <<< "${DOMAINS_FOR}"
+    for pair in "${PAIRS[@]}"; do
+        DOMAINS_FOR_FLAGS="${DOMAINS_FOR_FLAGS} --domains-for ${pair}"
+    done
+fi
+
+PROVENANCE_FLAG=""
+if [ -n "${PROVENANCE_PATH}" ]; then
+    echo "[${JOB_LABEL}] provenance_path=${PROVENANCE_PATH}"
+    PROVENANCE_FLAG=" --provenance ${PROVENANCE_PATH}"
+fi
+
+INTERFACE_JSON_FLAG=""
+if [ -n "${INTERFACE_JSON}" ]; then
+    echo "[${JOB_LABEL}] interface_json=${INTERFACE_JSON}"
+    INTERFACE_JSON_FLAG=" --interface-json ${INTERFACE_JSON}"
+fi
+
 $SIF_CPU "source /ext3/env.sh && cd /home/jv2807/dms_side_projects/protein_vis && python -m protein_vis.cli render \
     --variants ${VARIANTS_CSV} \
     --structure ${STRUCTURE_SPEC} \
     --uniprot ${UNIPROT_ACCESSION} \
     --cache-dir ${CACHE_DIR} \
     --domains ${DOMAINS_CONFIG} \
-    --output-dir ${OUTPUT_DIR}${CHAIN_LABEL_FLAGS}${CLASS_COLOR_FLAGS}${VARIANT_CLASS_FLAGS}" \
+    --output-dir ${OUTPUT_DIR}${CHAIN_LABEL_FLAGS}${CLASS_COLOR_FLAGS}${VARIANT_CLASS_FLAGS}${CHAIN_UNIPROT_FLAGS}${DOMAINS_FOR_FLAGS}${PROVENANCE_FLAG}${INTERFACE_JSON_FLAG}" \
     || { echo "[${JOB_LABEL}] Render FAILED"; exit 1; }
 
 echo ""
