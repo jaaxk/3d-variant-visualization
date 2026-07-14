@@ -3,16 +3,30 @@
 Interactive + static 3D visualization of protein variants, colored by class
 and split per structural domain, built for reproducible use on NYU Torch HPC.
 
+![overview.html example -- PKD1 (green) / PKD2 (purple) complex, "Chain" color
+mode, variant class legend on the right, per-category checkboxes + "Uncheck
+all" on the left](example.jpg)
+
+*Example: `overview.html` for the PKD1/PKD2 complex, "Color by: Chain"
+selected. Every backbone-coloring legend (Chain/Domain/Topology/EM-AF/
+Confidence) gets a checkbox per category plus an "Uncheck all" button;
+the variant-class legend (right) stays a plain, always-on reference.*
+
 Given (1) a CSV of variants grouped into classes and (2) a 3D protein
 structure, this produces:
 - One **interactive, self-contained HTML** file per structural domain that
-  has variants, plus one whole-structure overview -- rotatable/zoomable in
-  any browser, no server or live Python kernel required.
-- One more always-on **domain overview** -- the whole structure with its
-  backbone colored by domain (every configured/derived domain at once, each
-  its own color, with a legend), variants still overlaid and colored by
-  class as everywhere else, so domain architecture and variant classes can
-  be read together in one view.
+  has variants, plus one whole-structure **overview** -- rotatable/zoomable
+  in any browser, no server or live Python kernel required.
+- The overview has a **"Color by" dropdown** switching the backbone coloring
+  between several precomputed schemes -- Chain, Domain (every configured/
+  derived domain at once, each its own color), Topology
+  (Cytoplasmic/Transmembrane/Extracellular, auto-derived from UniProt), and,
+  for structures built by grafting a real deposited structure onto a
+  predicted one, EM/AF (which residues are real vs. predicted) and
+  Confidence (per-residue AlphaFold pLDDT) -- all without reloading the
+  page. Each mode's legend has a checkbox per category (toggle any
+  combination on/off) plus an "Uncheck all" button; variants stay overlaid
+  and colored by class in every mode, with their own always-visible legend.
 - A matching lightweight static PNG per visualization (quick previews,
   README thumbnails).
 - A `run_report.json` recording variant counts, alignment quality, and any
@@ -164,7 +178,7 @@ all 4303 residues (native 1-based UniProt numbering, verified, not assumed)
 removes 6A70's coverage gap entirely. Domains use `--domains auto` (31
 UniProt Domain/Region/Repeat features spanning the full protein) rather
 than the curated `P98161.yaml`, which only covers 6A70's fragment --
-exercising the `domain_overview` visualization (see above) meaningfully for
+exercising the overview's Domain color mode (see above) meaningfully for
 the first time, since a small curated 3-domain config wouldn't show much
 architecture. Results go to
 `/scratch/jv2807/pkd1/results/protein_vis_pkd1_alphafold/`, separate from
