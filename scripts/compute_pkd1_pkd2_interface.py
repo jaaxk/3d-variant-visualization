@@ -105,9 +105,12 @@ def main() -> None:
     print(f"      {len(pkd1_positions)} PKD1 ({PKD1_ACCESSION}) interface residue(s)")
     print(f"      {len(pkd2_positions)} PKD2 ({PKD2_ACCESSION}) interface residue(s)")
 
+    # Bio.Align's alignment.aligned blocks hand back numpy ints, which
+    # propagate into these sets via align_to_reference's pos_to_resnum --
+    # cast to plain int so json.dumps doesn't choke on numpy.int64.
     payload = {
-        PKD1_ACCESSION: sorted(pkd1_positions),
-        PKD2_ACCESSION: sorted(pkd2_positions),
+        PKD1_ACCESSION: sorted(int(p) for p in pkd1_positions),
+        PKD2_ACCESSION: sorted(int(p) for p in pkd2_positions),
     }
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
